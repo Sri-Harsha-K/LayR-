@@ -1,0 +1,72 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Deep neutral charcoal surfaces, not pure black. */
+  --color-surface-0: #171513;
+  --color-surface-1: #1f1c19;
+  --color-surface-2: #28241f;
+  --color-surface-3: #332e27;
+  --color-hairline: #46403756;
+
+  --color-ink: #ede6da;
+  --color-ink-dim: #a89e8e;
+  --color-ink-faint: #6f6759;
+
+  /* Fixed 8-color track palette (mirrors src/state/types.ts TRACK_COLORS) */
+  --color-track-1: #e0654f;
+  --color-track-2: #d9a441;
+  --color-track-3: #7fa876;
+  --color-track-4: #4f9bd9;
+  --color-track-5: #a879c9;
+  --color-track-6: #5fb8a8;
+  --color-track-7: #c96f9e;
+  --color-track-8: #8f8f6f;
+
+  /* Metering: amber/green, red reserved for record/arm only. */
+  --color-meter-green: #7fbf6a;
+  --color-meter-amber: #e0b13f;
+  --color-meter-red: #d94f4f;
+  --color-record: #d94f4f;
+
+  --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', ui-serif, serif;
+  --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-surface-0);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-track-4);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
