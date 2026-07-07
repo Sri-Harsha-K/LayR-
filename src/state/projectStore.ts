@@ -2,11 +2,13 @@ import { create, useStore } from 'zustand';
 import { temporal } from 'zundo';
 import type { TemporalState } from 'zundo';
 import { generateId } from '../utils/id';
+import { patternLengthTicks } from '../engine/time';
 import {
   DEFAULT_DRUM_LANES,
   TRACK_COLORS,
   type Clip,
   type DrumLaneConfig,
+  type DrumPattern,
   type EffectInstance,
   type Project,
   type SynthConfig,
@@ -42,6 +44,17 @@ function defaultDrumKit(): DrumLaneConfig[] {
   }));
 }
 
+export function createDefaultPattern(steps: 16 | 32 = 16): DrumPattern {
+  return {
+    steps,
+    swing: 0,
+    lanes: DEFAULT_DRUM_LANES.map((l) => ({
+      laneId: l.laneId,
+      steps: Array.from({ length: steps }, () => ({ on: false, velocity: 0.85 })),
+    })),
+  };
+}
+
 export function defaultSynthConfig(): SynthConfig {
   return {
     engine: 'poly',
@@ -67,6 +80,7 @@ interface ProjectActions {
   reorderMasterEffects: (fromIndex: number, toIndex: number) => void;
   updateMasterEffect: (effectId: string, patch: Partial<EffectInstance>) => void;
   addClip: (trackId: string, clip: Clip) => void;
+  addDefaultPatternClip: (trackId: string) => string;
   updateClip: (trackId: string, clipId: string, patch: Partial<Clip>) => void;
   removeClip: (trackId: string, clipId: string) => void;
   duplicateClip: (trackId: string, clipId: string) => string | undefined;
@@ -198,6 +212,24 @@ export const useProjectStore = create<ProjectStore>()(
           project: withTrack(s.project, trackId, (t) => ({ ...t, clips: [...t.clips, clip] })),
         })),
 
+      addDefaultPatternClip: (trackId) => {
+        const id = generateId('clip');
+        const steps = 16;
+        set((s) => {
+          const clip: Clip = {
+            id,
+            startTicks: 0,
+            lengthTicks: patternLengthTicks(steps),
+            kind: 'pattern',
+            pattern: createDefaultPattern(steps),
+          };
+          return {
+            project: withTrack(s.project, trackId, (t) => ({ ...t, clips: [...t.clips, clip] })),
+          };
+        });
+        return id;
+      },
+
       updateClip: (trackId, clipId, patch) =>
         set((s) => ({
           project: withTrack(s.project, trackId, (t) => ({
@@ -219,8 +251,15 @@ export const useProjectStore = create<ProjectStore>()(
         const source = track?.clips.find((c) => c.id === clipId);
         if (!source) return undefined;
         const newId = generateId('clip');
+        // Pattern/note data must be deep-copied so editing the duplicate never
+        // mutates the original (v1 has no linked-pattern concept).
         const copy: Clip = {
           ...source,
+          ...(source.kind === 'pattern'
+            ? { pattern: structuredClone(source.pattern) }
+            : source.kind === 'midi'
+              ? { notes: source.notes.map((n) => ({ ...n })) }
+              : {}),
           id: newId,
           startTicks: source.startTicks + source.lengthTicks,
         };

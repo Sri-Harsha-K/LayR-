@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { TICKS_PER_BAR } from '../engine/time';
 
 export type BottomPanelTab = 'stepsequencer' | 'pianoroll' | 'mixer';
 
@@ -31,9 +32,13 @@ export const useUiStore = create<UiState>((set) => ({
   selection: {},
   bottomPanelTab: 'stepsequencer',
   pxPerBeat: 32,
-  loopEnabled: false,
+  // A step sequencer's whole point is looping playback, so loop defaults on
+  // over a 1-bar window — exactly the span of a freshly-added pattern clip
+  // (addDefaultPatternClip). "Add a drum track" -> program steps -> Play
+  // should loop immediately with no extra clicks.
+  loopEnabled: true,
   loopStartTicks: 0,
-  loopEndTicks: 960 * 4 * 4, // 4 bars default
+  loopEndTicks: TICKS_PER_BAR,
   metronomeEnabled: false,
   isPoweredOn: false,
 

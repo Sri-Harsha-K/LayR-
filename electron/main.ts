@@ -32,6 +32,19 @@ function createWindow(): void {
     callback(permission === 'media');
   });
 
+  if (isDev) {
+    // Relay renderer console output to the main-process stdout so runtime
+    // errors are visible without opening DevTools by hand.
+    win.webContents.on('console-message', (event) => {
+      if (event.level === 'error' || event.level === 'warning') {
+        console.log(`[renderer:${event.level}] ${event.message} (${event.sourceId}:${event.lineNumber})`);
+      }
+    });
+    win.webContents.on('render-process-gone', (_event, details) => {
+      console.error('[renderer] process gone:', details.reason);
+    });
+  }
+
   if (isDev && DEV_SERVER_URL) {
     void win.loadURL(DEV_SERVER_URL);
   } else {

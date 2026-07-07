@@ -33,6 +33,9 @@ export interface IpcSampleFile {
   data: ArrayBuffer;
 }
 
+// Used by main.ts only. preload.ts runs sandboxed and can't require local
+// modules, so it keeps its own inlined copy of these same string values —
+// keep the two in sync if a channel name ever changes.
 export const IPC_CHANNELS = {
   openProject: 'project:open',
   saveProject: 'project:save',

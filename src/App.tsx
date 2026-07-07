@@ -4,8 +4,10 @@ import { ArrangementView } from './components/arrangement/ArrangementView';
 import { BottomDock } from './components/BottomDock';
 import { PowerOnOverlay } from './components/PowerOnOverlay';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useAudioEngine } from './hooks/useAudioEngine';
 
 function App() {
+  useAudioEngine();
   useKeyboardShortcuts();
 
   return (

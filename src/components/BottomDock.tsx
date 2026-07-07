@@ -1,4 +1,5 @@
 import { useUiStore, type BottomPanelTab } from '../state/uiStore';
+import { StepSequencer } from './stepsequencer/StepSequencer';
 
 const TABS: { id: BottomPanelTab; label: string; key: string }[] = [
   { id: 'stepsequencer', label: 'Step Sequencer', key: '1' },
@@ -31,8 +32,8 @@ export function BottomDock() {
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-auto p-4 text-sm text-ink-faint">
-        {activeTab === 'stepsequencer' && <EmptyPanelHint text="Select a drum pattern clip to edit its steps." />}
+      <div className="flex-1 overflow-auto p-3">
+        {activeTab === 'stepsequencer' && <StepSequencer />}
         {activeTab === 'pianoroll' && <EmptyPanelHint text="Select a MIDI clip to edit its notes." />}
         {activeTab === 'mixer' && <EmptyPanelHint text="Add a track to see it in the mixer." />}
       </div>

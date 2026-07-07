@@ -87,6 +87,16 @@ function TrackHeaderRow({ track }: { track: Track }) {
 export function TrackRail() {
   const tracks = useProjectStore((s) => s.project.tracks);
   const addTrack = useProjectStore((s) => s.addTrack);
+  const addDefaultPatternClip = useProjectStore((s) => s.addDefaultPatternClip);
+  const selectClip = useUiStore((s) => s.selectClip);
+  const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
+
+  const handleAddDrumTrack = () => {
+    const trackId = addTrack('drum');
+    const clipId = addDefaultPatternClip(trackId);
+    selectClip(trackId, clipId);
+    setBottomPanelTab('stepsequencer');
+  };
 
   return (
     <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-hairline bg-surface-1">
@@ -96,7 +106,7 @@ export function TrackRail() {
       <div className="flex gap-1 p-2">
         <button
           type="button"
-          onClick={() => addTrack('drum')}
+          onClick={handleAddDrumTrack}
           className="flex-1 rounded-md border border-dashed border-hairline px-2 py-1.5 text-xs text-ink-dim hover:border-track-1 hover:text-track-1"
         >
           + Drum

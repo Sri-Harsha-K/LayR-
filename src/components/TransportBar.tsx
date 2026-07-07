@@ -1,16 +1,22 @@
+import { useEffect, useState } from 'react';
 import { useUiStore } from '../state/uiStore';
 import { useProjectStore } from '../state/projectStore';
+import { audioEngine } from '../engine/AudioEngine';
+import { subscribeTransportState } from '../engine/transport';
+import { TimeDisplay } from './TimeDisplay';
 
 function IconButton({
   label,
   active,
   danger,
+  disabled,
   onClick,
   children,
 }: {
   label: string;
   active?: boolean;
   danger?: boolean;
+  disabled?: boolean;
   onClick?: () => void;
   children: React.ReactNode;
 }) {
@@ -20,9 +26,10 @@ function IconButton({
       title={label}
       aria-label={label}
       aria-pressed={active}
+      disabled={disabled}
       onClick={onClick}
       className={[
-        'flex h-9 w-9 items-center justify-center rounded-md border transition-colors',
+        'flex h-9 w-9 items-center justify-center rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-40',
         danger
           ? active
             ? 'border-record bg-record text-surface-0'
@@ -44,21 +51,42 @@ export function TransportBar() {
   const setLoopEnabled = useUiStore((s) => s.setLoopEnabled);
   const metronomeEnabled = useUiStore((s) => s.metronomeEnabled);
   const setMetronomeEnabled = useUiStore((s) => s.setMetronomeEnabled);
+  const isPoweredOn = useUiStore((s) => s.isPoweredOn);
+
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => subscribeTransportState((event) => setIsPlaying(event === 'started')), []);
+
+  const togglePlay = () => {
+    if (isPlaying) audioEngine.pause();
+    else void audioEngine.play();
+  };
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4">
       <div className="flex items-center gap-2">
-        <IconButton label="Play / Stop (Space)" active={false}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M8 5v14l11-7z" />
-          </svg>
+        <IconButton label="Play / Stop (Space)" active={isPlaying} disabled={!isPoweredOn} onClick={togglePlay}>
+          {isPlaying ? (
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <rect x="6" y="5" width="4" height="14" />
+              <rect x="14" y="5" width="4" height="14" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          )}
         </IconButton>
-        <IconButton label="Record (R)" danger>
+        <IconButton label="Record (R)" danger disabled>
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
             <circle cx="12" cy="12" r="8" />
           </svg>
         </IconButton>
-        <IconButton label="Return to zero (Enter)">
+        <IconButton
+          label="Return to zero (Enter)"
+          disabled={!isPoweredOn}
+          onClick={() => audioEngine.returnToZero()}
+        >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
             <path d="M6 5h2v14H6zM20 6l-9 6 9 6z" />
           </svg>
@@ -95,9 +123,7 @@ export function TransportBar() {
             className="tabular w-16 rounded border border-hairline bg-surface-2 px-2 py-1 text-center text-ink"
           />
         </label>
-        <div className="tabular font-mono text-lg text-ink" aria-label="Position">
-          001:1:01
-        </div>
+        <TimeDisplay />
       </div>
 
       <div className="flex items-center gap-3">
@@ -110,7 +136,7 @@ export function TransportBar() {
           type="button"
           disabled
           className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink-dim opacity-60"
-          title="Bounce to WAV (available once the engine is wired up)"
+          title="Bounce to WAV (available once export lands in Phase 5)"
         >
           Bounce to WAV
         </button>

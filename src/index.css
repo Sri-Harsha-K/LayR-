@@ -61,6 +61,23 @@ body {
   outline-offset: 1px;
 }
 
+@keyframes pad-pulse {
+  0% {
+    transform: scale(1);
+    filter: brightness(1.5);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+.pad-playing {
+  animation: pad-pulse 140ms ease-out;
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
