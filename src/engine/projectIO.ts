@@ -5,7 +5,7 @@
 // registerSampleAtRef directly.
 import { platform } from '../platform';
 import type { AudioFilePayload, OpenedProject } from '../platform/types';
-import { useProjectStore } from '../state/projectStore';
+import { sanitizeProject, useProjectStore } from '../state/projectStore';
 import { useUiStore } from '../state/uiStore';
 import type { Project } from '../state/types';
 import { getSampleBuffer, refToRelPath, registerSampleAtRef, relPathToRef } from './sampleRegistry';
@@ -50,13 +50,15 @@ function markSaved(project: Project): void {
   useUiStore.getState().setProjectDirty(false);
 }
 
-async function loadOpened(opened: OpenedProject): Promise<void> {
+async function loadOpened(opened: OpenedProject): Promise<Project> {
   await hydrateAudioFiles(opened.audioFiles);
-  useProjectStore.getState().loadProject(opened.project);
+  const project = sanitizeProject(opened.project);
+  useProjectStore.getState().loadProject(project);
   // A manual loop range from a previous project in this session shouldn't
   // carry over to a freshly-opened one — resume auto-following its own
   // arrangement length (useAudioEngine.ts recomputes it right after).
   useUiStore.getState().setLoopFollowsArrangement(true);
+  return project;
 }
 
 export async function saveProject(): Promise<boolean> {
@@ -81,9 +83,9 @@ export async function saveProjectAs(): Promise<boolean> {
 export async function openProject(): Promise<boolean> {
   const opened = await platform.openProject();
   if (!opened) return false;
-  await loadOpened(opened);
+  const project = await loadOpened(opened);
   useUiStore.getState().setOpenProjectRef(opened.projectDirPath);
-  markSaved(opened.project);
+  markSaved(project);
   return true;
 }
 
