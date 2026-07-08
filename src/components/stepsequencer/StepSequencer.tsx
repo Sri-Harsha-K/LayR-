@@ -97,7 +97,7 @@ export function StepSequencer() {
   const handleLoadSample = async (laneId: string) => {
     const file = await platform.pickSampleFile();
     if (!file) return;
-    const ref = await registerSample(file.name, file.data);
+    const { ref } = await registerSample(file.name, file.data);
     setTrackDrumKit(
       track.id,
       lanes.map((l) => (l.laneId === laneId ? { ...l, sampleRef: ref } : l)),

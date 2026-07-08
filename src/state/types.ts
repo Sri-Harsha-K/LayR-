@@ -56,10 +56,16 @@ export interface Track {
   clips: Clip[];
 }
 
+export interface VolumeKeyframe {
+  ticks: number; // clip-relative, 0..lengthTicks
+  value: number; // 0..1 linear gain multiplier
+}
+
 export interface ClipBase {
   id: string;
   startTicks: number;
   lengthTicks: number;
+  volumeKeyframes?: VolumeKeyframe[];
 }
 
 export type Clip = ClipBase &

@@ -5,10 +5,12 @@ import { BottomDock } from './components/BottomDock';
 import { PowerOnOverlay } from './components/PowerOnOverlay';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAudioEngine } from './hooks/useAudioEngine';
+import { useProjectPersistence } from './hooks/useProjectPersistence';
 
 function App() {
   useAudioEngine();
   useKeyboardShortcuts();
+  useProjectPersistence();
 
   return (
     <div className="flex h-screen flex-col overflow-hidden font-ui">

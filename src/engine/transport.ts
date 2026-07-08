@@ -30,6 +30,11 @@ export function returnToZero(): void {
   Tone.getTransport().position = 0;
 }
 
+/** Seeks the transport to an absolute tick position — works whether playing, paused, or stopped. */
+export function seekToTicks(ticks: number): void {
+  Tone.getTransport().ticks = Math.max(0, Math.round(ticks));
+}
+
 export function isPlaying(): boolean {
   return Tone.getTransport().state === 'started';
 }

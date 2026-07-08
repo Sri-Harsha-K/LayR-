@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { pauseHistory, resumeHistory } from '../../state/projectStore';
 
 interface PadProps {
   on: boolean;
@@ -20,6 +21,7 @@ export function Pad({ on, velocity, accent, onToggle, onVelocityChange, padRef }
     moved.current = false;
     if (on) {
       dragState.current = { startY: e.clientY, startVelocity: velocity };
+      pauseHistory();
     }
   };
 
@@ -32,6 +34,7 @@ export function Pad({ on, velocity, accent, onToggle, onVelocityChange, padRef }
   };
 
   const handlePointerUp = () => {
+    if (dragState.current) resumeHistory();
     if (!on || !moved.current) onToggle();
     dragState.current = null;
     moved.current = false;
@@ -44,6 +47,7 @@ export function Pad({ on, velocity, accent, onToggle, onVelocityChange, padRef }
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       aria-pressed={on}
       aria-label={on ? `Step on, velocity ${Math.round(velocity * 100)}%` : 'Step off'}
       className={[

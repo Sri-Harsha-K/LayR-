@@ -5,9 +5,11 @@
 // buildGraph just needs to be invoked inside that callback — it never
 // touches Tone.setContext itself).
 import * as Tone from 'tone';
-import type { Clip, Project, Track } from '../state/types';
+import type { Clip, Project, Track, VolumeKeyframe } from '../state/types';
+import { sampleVolumeAtTick, sortKeyframes } from './automation';
 import { buildEffectChain } from './effects';
 import { createDrumVoice, createSampleDrumVoice, type DrumVoice } from './instruments/drumKit';
+import { createSynthInstrument, type SynthInstrument } from './instruments/synthFactory';
 import { getSampleBuffer, hasSampleBuffer } from './sampleRegistry';
 import { clampSwing, patternLengthTicks, stepOffsetTicks, ticksToToneTime } from './time';
 
@@ -18,6 +20,12 @@ interface Disposable {
 export interface BuiltGraph {
   /** trackId -> laneId -> live voice, exposed so the step sequencer can preview a single hit. */
   drumVoicesByTrack: Map<string, Map<string, DrumVoice>>;
+  /** trackId -> the track's live instrument, exposed so the piano roll can preview a note. */
+  synthInstrumentsByTrack: Map<string, SynthInstrument>;
+  /** trackId -> a post-fader/pan meter tap, polled by AudioEngine's rAF loop for the mixer's level bars. */
+  metersByTrack: Map<string, Tone.Meter>;
+  /** Post-master-effects-chain tap (what's actually about to hit the destination). */
+  masterMeter: Tone.Meter;
   parts: Tone.Part[];
   dispose(): void;
 }
@@ -34,10 +42,11 @@ function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: 
   for (const lane of clip.pattern.lanes) {
     lane.steps.forEach((step, i) => {
       if (!step.on) return;
+      const offset = stepOffsetTicks(i, swing);
       events.push({
-        time: ticksToToneTime(stepOffsetTicks(i, swing)),
+        time: ticksToToneTime(offset),
         laneId: lane.laneId,
-        velocity: step.velocity,
+        velocity: step.velocity * sampleVolumeAtTick(clip.volumeKeyframes, offset),
       });
     });
   }
@@ -52,25 +61,50 @@ function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: 
   return part;
 }
 
+function buildMidiPart(clip: Extract<Clip, { kind: 'midi' }>, instrument: SynthInstrument): Tone.Part {
+  interface NoteEvent {
+    time: string;
+    pitch: number;
+    durationTicks: number;
+    velocity: number;
+  }
+
+  const events: NoteEvent[] = clip.notes.map((n) => ({
+    time: ticksToToneTime(n.startTicks),
+    pitch: n.pitch,
+    durationTicks: n.durationTicks,
+    velocity: n.velocity * sampleVolumeAtTick(clip.volumeKeyframes, n.startTicks),
+  }));
+
+  const part = new Tone.Part<NoteEvent>((time, ev) => {
+    instrument.triggerNote(ev.pitch, ev.durationTicks, time, ev.velocity);
+  }, events);
+  part.start(ticksToToneTime(clip.startTicks));
+  part.stop(ticksToToneTime(clip.startTicks + clip.lengthTicks));
+  return part;
+}
+
 function buildTrackChannel(
   track: Track,
   anySolo: boolean,
   masterInput: Tone.ToneAudioNode,
   disposables: Disposable[],
-): Tone.Gain {
+): { trackInput: Tone.Gain; meter: Tone.Meter } {
   const trackInput = new Tone.Gain(1);
   const isSilenced = track.mixer.mute || (anySolo && !track.mixer.solo);
   const trackGain = new Tone.Gain(isSilenced ? 0 : Tone.dbToGain(track.mixer.gainDb));
   const trackPanner = new Tone.Panner(track.mixer.pan);
-  disposables.push(trackInput, trackGain, trackPanner);
+  const meter = new Tone.Meter({ smoothing: 0.8 });
+  disposables.push(trackInput, trackGain, trackPanner, meter);
 
   const effectNodes = buildEffectChain(track.effects, trackInput, trackGain);
   disposables.push(...effectNodes);
 
   trackGain.connect(trackPanner);
   trackPanner.connect(masterInput);
+  trackPanner.connect(meter); // tap only — doesn't join the audio path to master
 
-  return trackInput;
+  return { trackInput, meter };
 }
 
 function buildDrumTrack(
@@ -101,14 +135,81 @@ function buildDrumTrack(
   return laneVoices;
 }
 
+// Schedules a clip's volume-keyframe curve onto a live Gain param as
+// absolute-tick automation events (Tone.Param.setValueAtTime/
+// linearRampToValueAtTime resolve "Xi" tick notation against the Transport's
+// own tempo-linked clock, same as every other scheduled time in this file —
+// see time.ts's header comment — so this stays glitch-free across BPM
+// changes too). Only audio clips get real continuous automation: they're
+// the one clip kind with a single per-clip node sitting in the signal path
+// the whole time it plays. Pattern/MIDI clips instead scale each discrete
+// trigger's velocity by the curve's value at that instant (see
+// buildPatternPart/buildMidiPart) since there's no per-clip node to ramp.
+function scheduleVolumeAutomation(
+  gainParam: Tone.Gain['gain'],
+  keyframes: VolumeKeyframe[] | undefined,
+  clipStartTicks: number,
+  clipLengthTicks: number,
+): void {
+  if (!keyframes || keyframes.length === 0) return;
+  const sorted = sortKeyframes(keyframes);
+  const atClipTick = (ticks: number) => ticksToToneTime(clipStartTicks + ticks);
+  gainParam.setValueAtTime(sorted[0]!.value, atClipTick(0));
+  for (const kf of sorted) {
+    gainParam.linearRampToValueAtTime(kf.value, atClipTick(kf.ticks));
+  }
+  gainParam.setValueAtTime(sorted[sorted.length - 1]!.value, atClipTick(clipLengthTicks));
+}
+
+function buildAudioTrack(track: Track, trackInput: Tone.Gain, disposables: Disposable[]): void {
+  for (const clip of track.clips) {
+    if (clip.kind !== 'audio' || !hasSampleBuffer(clip.fileRef)) continue;
+    const player = new Tone.Player(getSampleBuffer(clip.fileRef)!);
+    player.volume.value = clip.gainDb;
+    const clipGain = new Tone.Gain(1);
+    scheduleVolumeAutomation(clipGain.gain, clip.volumeKeyframes, clip.startTicks, clip.lengthTicks);
+    player.connect(clipGain);
+    clipGain.connect(trackInput);
+    disposables.push(player, clipGain);
+    // .sync() binds start/stop to the Transport's own tick clock (like the
+    // Part-based instruments above) instead of a one-off real-time offset
+    // computed at graph-build time, so this stays glitch-free across BPM
+    // changes the same way pattern/midi parts do.
+    player.sync().start(ticksToToneTime(clip.startTicks), clip.bufferOffsetSec, ticksToToneTime(clip.lengthTicks));
+  }
+}
+
+function buildSynthTrack(
+  track: Track,
+  trackInput: Tone.Gain,
+  disposables: Disposable[],
+  parts: Tone.Part[],
+): SynthInstrument | undefined {
+  if (!track.instrument) return undefined;
+  const instrument = createSynthInstrument(track.instrument);
+  instrument.output.connect(trackInput);
+  disposables.push(instrument);
+
+  for (const clip of track.clips) {
+    if (clip.kind !== 'midi') continue;
+    parts.push(buildMidiPart(clip, instrument));
+  }
+
+  return instrument;
+}
+
 export function buildGraph(project: Project): BuiltGraph {
   const disposables: Disposable[] = [];
   const parts: Tone.Part[] = [];
   const drumVoicesByTrack = new Map<string, Map<string, DrumVoice>>();
+  const synthInstrumentsByTrack = new Map<string, SynthInstrument>();
+  const metersByTrack = new Map<string, Tone.Meter>();
 
   const masterInput = new Tone.Gain(1);
   const masterGain = new Tone.Gain(Tone.dbToGain(project.masterGainDb));
-  disposables.push(masterInput, masterGain);
+  const masterOutput = new Tone.Gain(1);
+  const masterMeter = new Tone.Meter({ smoothing: 0.8 });
+  disposables.push(masterInput, masterGain, masterOutput, masterMeter);
   masterInput.connect(masterGain);
 
   const hasActiveLimiter = project.masterEffects.some((e) => e.type === 'limiter' && !e.bypass);
@@ -118,23 +219,32 @@ export function buildGraph(project: Project): BuiltGraph {
         ...project.masterEffects,
         { id: 'implicit-limiter', type: 'limiter' as const, bypass: false, params: { threshold: -1 } },
       ];
-  const masterEffectNodes = buildEffectChain(masterEffects, masterGain, Tone.getDestination());
+  const masterEffectNodes = buildEffectChain(masterEffects, masterGain, masterOutput);
   disposables.push(...masterEffectNodes);
+  masterOutput.connect(Tone.getDestination());
+  masterOutput.connect(masterMeter);
 
   const anySolo = project.tracks.some((t) => t.mixer.solo);
 
   for (const track of project.tracks) {
-    const trackInput = buildTrackChannel(track, anySolo, masterInput, disposables);
+    const { trackInput, meter } = buildTrackChannel(track, anySolo, masterInput, disposables);
+    metersByTrack.set(track.id, meter);
 
     if (track.kind === 'drum') {
       drumVoicesByTrack.set(track.id, buildDrumTrack(track, trackInput, disposables, parts));
+    } else if (track.kind === 'synth') {
+      const instrument = buildSynthTrack(track, trackInput, disposables, parts);
+      if (instrument) synthInstrumentsByTrack.set(track.id, instrument);
+    } else if (track.kind === 'audio') {
+      buildAudioTrack(track, trackInput, disposables);
     }
-    // synth clips (Phase 2) and audio clips (Phase 4) are scheduled here once
-    // their instrument/player factories exist.
   }
 
   return {
     drumVoicesByTrack,
+    synthInstrumentsByTrack,
+    metersByTrack,
+    masterMeter,
     parts,
     dispose() {
       parts.forEach((p) => p.dispose());

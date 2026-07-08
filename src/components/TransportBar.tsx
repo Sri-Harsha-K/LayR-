@@ -1,9 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUiStore } from '../state/uiStore';
 import { useProjectStore } from '../state/projectStore';
 import { audioEngine } from '../engine/AudioEngine';
 import { subscribeTransportState } from '../engine/transport';
+import { toggleRecording } from '../engine/recordingController';
+import { openProject, saveProject, saveProjectAs } from '../engine/projectIO';
+import { bounceProject } from '../engine/render';
+import { getTransientState } from '../state/transient';
 import { TimeDisplay } from './TimeDisplay';
+
+const MASTER_METER_SEGMENTS = 16;
 
 function IconButton({
   label,
@@ -44,6 +50,83 @@ function IconButton({
   );
 }
 
+function MasterMeter() {
+  const segmentRefs = useRef<(HTMLSpanElement | null)[]>([]);
+
+  useEffect(() => {
+    let raf: number;
+    const loop = () => {
+      const level = getTransientState().masterMeterLevel;
+      const lit = Math.round(level * MASTER_METER_SEGMENTS);
+      segmentRefs.current.forEach((el, i) => {
+        if (!el) return;
+        const isLit = i < lit;
+        const isHot = i >= MASTER_METER_SEGMENTS - 2; // top 2 segments read as "hot", never red — see index.css
+        el.style.backgroundColor = isLit
+          ? isHot
+            ? 'var(--color-meter-amber)'
+            : 'var(--color-meter-green)'
+          : 'var(--color-surface-3)';
+      });
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="flex h-6 w-24 items-center gap-[2px] rounded bg-surface-2 px-1" aria-label="Master meter">
+      {Array.from({ length: MASTER_METER_SEGMENTS }).map((_, i) => (
+        <span
+          key={i}
+          ref={(el) => {
+            segmentRefs.current[i] = el;
+          }}
+          className="h-3 flex-1 rounded-sm bg-surface-3"
+        />
+      ))}
+    </div>
+  );
+}
+
+function FileControls() {
+  const projectName = useProjectStore((s) => s.project.name);
+  const isDirty = useUiStore((s) => s.isProjectDirty);
+
+  return (
+    <div className="flex items-center gap-2 border-r border-hairline pr-3">
+      <span className="max-w-[10rem] truncate text-sm text-ink-dim" title={projectName}>
+        {projectName}
+        {isDirty && <span className="text-record"> •</span>}
+      </span>
+      <button
+        type="button"
+        title="Open (Ctrl/Cmd+O)"
+        onClick={() => void openProject()}
+        className="rounded-md border border-hairline px-2 py-1 text-xs text-ink-dim hover:text-ink"
+      >
+        Open
+      </button>
+      <button
+        type="button"
+        title="Save (Ctrl/Cmd+S)"
+        onClick={() => void saveProject()}
+        className="rounded-md border border-hairline px-2 py-1 text-xs text-ink-dim hover:text-ink"
+      >
+        Save
+      </button>
+      <button
+        type="button"
+        title="Save As (Ctrl/Cmd+Shift+S)"
+        onClick={() => void saveProjectAs()}
+        className="rounded-md border border-hairline px-2 py-1 text-xs text-ink-dim hover:text-ink"
+      >
+        Save As
+      </button>
+    </div>
+  );
+}
+
 export function TransportBar() {
   const bpm = useProjectStore((s) => s.project.bpm);
   const setBpm = useProjectStore((s) => s.setBpm);
@@ -52,10 +135,40 @@ export function TransportBar() {
   const metronomeEnabled = useUiStore((s) => s.metronomeEnabled);
   const setMetronomeEnabled = useUiStore((s) => s.setMetronomeEnabled);
   const isPoweredOn = useUiStore((s) => s.isPoweredOn);
+  const tracks = useProjectStore((s) => s.project.tracks);
+  const armedAudioTrack = tracks.find((t) => t.kind === 'audio' && t.armed);
+
+  const project = useProjectStore((s) => s.project);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isRecording, setIsRecordingUi] = useState(false);
+  const [isBouncing, setIsBouncing] = useState(false);
+
+  const handleBounce = async () => {
+    if (isBouncing) return;
+    setIsBouncing(true);
+    try {
+      await bounceProject(project);
+    } finally {
+      setIsBouncing(false);
+    }
+  };
 
   useEffect(() => subscribeTransportState((event) => setIsPlaying(event === 'started')), []);
+
+  // isRecording has no event to subscribe to (unlike transport start/stop),
+  // so it's polled the same way meters are — React bails out of re-rendering
+  // when the value hasn't actually changed, so this doesn't cost a re-render
+  // per frame in practice.
+  useEffect(() => {
+    let raf: number;
+    const loop = () => {
+      setIsRecordingUi(getTransientState().isRecording);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   const togglePlay = () => {
     if (isPlaying) audioEngine.pause();
@@ -65,6 +178,7 @@ export function TransportBar() {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4">
       <div className="flex items-center gap-2">
+        <FileControls />
         <IconButton label="Play / Stop (Space)" active={isPlaying} disabled={!isPoweredOn} onClick={togglePlay}>
           {isPlaying ? (
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
@@ -77,7 +191,19 @@ export function TransportBar() {
             </svg>
           )}
         </IconButton>
-        <IconButton label="Record (R)" danger disabled>
+        <IconButton
+          label={
+            isRecording
+              ? 'Stop recording (R)'
+              : armedAudioTrack
+                ? `Record to "${armedAudioTrack.name}" (R)`
+                : 'Arm an audio track to record (R)'
+          }
+          danger
+          active={isRecording}
+          disabled={!isPoweredOn || (!isRecording && !armedAudioTrack)}
+          onClick={() => void toggleRecording()}
+        >
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
             <circle cx="12" cy="12" r="8" />
           </svg>
@@ -127,18 +253,15 @@ export function TransportBar() {
       </div>
 
       <div className="flex items-center gap-3">
-        <div className="flex h-6 w-24 items-center gap-[2px] rounded bg-surface-2 px-1" aria-label="Master meter">
-          {Array.from({ length: 16 }).map((_, i) => (
-            <span key={i} className="h-3 flex-1 rounded-sm bg-surface-3" />
-          ))}
-        </div>
+        <MasterMeter />
         <button
           type="button"
-          disabled
-          className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink-dim opacity-60"
-          title="Bounce to WAV (available once export lands in Phase 5)"
+          disabled={isBouncing}
+          onClick={() => void handleBounce()}
+          className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          title="Bounce to WAV (Ctrl/Cmd+E)"
         >
-          Bounce to WAV
+          {isBouncing ? 'Bouncing…' : 'Bounce to WAV'}
         </button>
       </div>
     </header>

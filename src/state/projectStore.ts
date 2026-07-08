@@ -2,7 +2,8 @@ import { create, useStore } from 'zustand';
 import { temporal } from 'zundo';
 import type { TemporalState } from 'zundo';
 import { generateId } from '../utils/id';
-import { patternLengthTicks } from '../engine/time';
+import { patternLengthTicks, ticksToSeconds } from '../engine/time';
+import { getDefaultPresetForEngine } from '../engine/instruments/synthPresets';
 import {
   DEFAULT_DRUM_LANES,
   TRACK_COLORS,
@@ -27,6 +28,17 @@ export function createEmptyProject(name = 'Untitled Song'): Project {
     ],
     tracks: [],
   };
+}
+
+/** The tick position where the last clip on any track ends — the natural length of the whole arrangement. 0 if there are no clips. */
+export function furthestClipEndTicks(tracks: Track[]): number {
+  let furthest = 0;
+  for (const track of tracks) {
+    for (const clip of track.clips) {
+      furthest = Math.max(furthest, clip.startTicks + clip.lengthTicks);
+    }
+  }
+  return furthest;
 }
 
 function nextTrackColor(existing: Track[]): TrackColor {
@@ -56,11 +68,7 @@ export function createDefaultPattern(steps: 16 | 32 = 16): DrumPattern {
 }
 
 export function defaultSynthConfig(): SynthConfig {
-  return {
-    engine: 'poly',
-    presetName: 'Warm Pad',
-    params: {},
-  };
+  return { ...getDefaultPresetForEngine('poly'), params: { ...getDefaultPresetForEngine('poly').params } };
 }
 
 interface ProjectActions {
@@ -69,6 +77,7 @@ interface ProjectActions {
   setMasterGainDb: (db: number) => void;
   addTrack: (kind: Track['kind'], name?: string) => string;
   removeTrack: (trackId: string) => void;
+  reorderTracks: (fromIndex: number, toIndex: number) => void;
   renameTrack: (trackId: string, name: string) => void;
   updateTrackMixer: (trackId: string, patch: Partial<Track['mixer']>) => void;
   addTrackEffect: (trackId: string, effect: EffectInstance) => void;
@@ -81,7 +90,10 @@ interface ProjectActions {
   updateMasterEffect: (effectId: string, patch: Partial<EffectInstance>) => void;
   addClip: (trackId: string, clip: Clip) => void;
   addDefaultPatternClip: (trackId: string) => string;
+  addDefaultMidiClip: (trackId: string) => string;
   updateClip: (trackId: string, clipId: string, patch: Partial<Clip>) => void;
+  moveClipToTrack: (fromTrackId: string, toTrackId: string, clipId: string, patch: Partial<Clip>) => void;
+  splitClip: (trackId: string, clipId: string, atTicks: number) => void;
   removeClip: (trackId: string, clipId: string) => void;
   duplicateClip: (trackId: string, clipId: string) => string | undefined;
   setTrackInstrument: (trackId: string, instrument: SynthConfig) => void;
@@ -134,6 +146,15 @@ export const useProjectStore = create<ProjectStore>()(
         set((s) => ({
           project: { ...s.project, tracks: s.project.tracks.filter((t) => t.id !== trackId) },
         })),
+
+      reorderTracks: (fromIndex, toIndex) =>
+        set((s) => {
+          const tracks = [...s.project.tracks];
+          const [moved] = tracks.splice(fromIndex, 1);
+          if (!moved) return s;
+          tracks.splice(toIndex, 0, moved);
+          return { project: { ...s.project, tracks } };
+        }),
 
       renameTrack: (trackId, name) =>
         set((s) => ({ project: withTrack(s.project, trackId, (t) => ({ ...t, name })) })),
@@ -230,6 +251,17 @@ export const useProjectStore = create<ProjectStore>()(
         return id;
       },
 
+      addDefaultMidiClip: (trackId) => {
+        const id = generateId('clip');
+        set((s) => {
+          const clip: Clip = { id, startTicks: 0, lengthTicks: patternLengthTicks(16), kind: 'midi', notes: [] };
+          return {
+            project: withTrack(s.project, trackId, (t) => ({ ...t, clips: [...t.clips, clip] })),
+          };
+        });
+        return id;
+      },
+
       updateClip: (trackId, clipId, patch) =>
         set((s) => ({
           project: withTrack(s.project, trackId, (t) => ({
@@ -237,6 +269,98 @@ export const useProjectStore = create<ProjectStore>()(
             clips: t.clips.map((c) => (c.id === clipId ? ({ ...c, ...patch } as Clip) : c)),
           })),
         })),
+
+      // Same-track drags call updateClip directly; this is only for the
+      // "dragged onto a different track" case, done as one atomic set() so
+      // it's a single undo step rather than a remove-then-add pair.
+      moveClipToTrack: (fromTrackId, toTrackId, clipId, patch) =>
+        set((s) => {
+          if (fromTrackId === toTrackId) {
+            return {
+              project: withTrack(s.project, fromTrackId, (t) => ({
+                ...t,
+                clips: t.clips.map((c) => (c.id === clipId ? ({ ...c, ...patch } as Clip) : c)),
+              })),
+            };
+          }
+          const fromTrack = s.project.tracks.find((t) => t.id === fromTrackId);
+          const clip = fromTrack?.clips.find((c) => c.id === clipId);
+          if (!clip) return s;
+          const movedClip = { ...clip, ...patch } as Clip;
+          return {
+            project: {
+              ...s.project,
+              tracks: s.project.tracks.map((t) => {
+                if (t.id === fromTrackId) return { ...t, clips: t.clips.filter((c) => c.id !== clipId) };
+                if (t.id === toTrackId) return { ...t, clips: [...t.clips, movedClip] };
+                return t;
+              }),
+            },
+          };
+        }),
+
+      // Pattern clips have no split semantics (their steps are fixed
+      // positions within one full loop, not a stretch of independent
+      // content) — the UI simply never offers split for a `kind: 'pattern'`
+      // clip, and this is a defensive no-op if ever called on one anyway.
+      splitClip: (trackId, clipId, atTicks) =>
+        set((s) => {
+          const track = s.project.tracks.find((t) => t.id === trackId);
+          const clip = track?.clips.find((c) => c.id === clipId);
+          if (!clip || clip.kind === 'pattern') return s;
+
+          const relativeSplit = atTicks - clip.startTicks;
+          if (relativeSplit <= 0 || relativeSplit >= clip.lengthTicks) return s;
+
+          // Volume keyframes are clip-relative, so a split has to redistribute
+          // them by the same before/after boundary as notes, shifting the
+          // second half's ticks back to 0 — same reasoning as the notes split
+          // below, just for the automation curve instead of note events.
+          const firstKeyframes = clip.volumeKeyframes?.filter((k) => k.ticks < relativeSplit);
+          const secondKeyframes = clip.volumeKeyframes
+            ?.filter((k) => k.ticks >= relativeSplit)
+            .map((k) => ({ ...k, ticks: k.ticks - relativeSplit }));
+
+          const newId = generateId('clip');
+          let firstHalf: Clip;
+          let secondHalf: Clip;
+
+          if (clip.kind === 'midi') {
+            firstHalf = {
+              ...clip,
+              lengthTicks: relativeSplit,
+              notes: clip.notes.filter((n) => n.startTicks < relativeSplit),
+              volumeKeyframes: firstKeyframes,
+            };
+            secondHalf = {
+              ...clip,
+              id: newId,
+              startTicks: atTicks,
+              lengthTicks: clip.lengthTicks - relativeSplit,
+              notes: clip.notes
+                .filter((n) => n.startTicks >= relativeSplit)
+                .map((n) => ({ ...n, startTicks: n.startTicks - relativeSplit })),
+              volumeKeyframes: secondKeyframes,
+            };
+          } else {
+            firstHalf = { ...clip, lengthTicks: relativeSplit, volumeKeyframes: firstKeyframes };
+            secondHalf = {
+              ...clip,
+              id: newId,
+              startTicks: atTicks,
+              lengthTicks: clip.lengthTicks - relativeSplit,
+              bufferOffsetSec: clip.bufferOffsetSec + ticksToSeconds(relativeSplit, s.project.bpm),
+              volumeKeyframes: secondKeyframes,
+            };
+          }
+
+          return {
+            project: withTrack(s.project, trackId, (t) => ({
+              ...t,
+              clips: t.clips.flatMap((c) => (c.id === clipId ? [firstHalf, secondHalf] : [c])),
+            })),
+          };
+        }),
 
       removeClip: (trackId, clipId) =>
         set((s) => ({
@@ -260,6 +384,7 @@ export const useProjectStore = create<ProjectStore>()(
             : source.kind === 'midi'
               ? { notes: source.notes.map((n) => ({ ...n })) }
               : {}),
+          volumeKeyframes: source.volumeKeyframes?.map((k) => ({ ...k })),
           id: newId,
           startTicks: source.startTicks + source.lengthTicks,
         };
@@ -291,3 +416,21 @@ export const useProjectStore = create<ProjectStore>()(
 export const useProjectTemporalStore = <T>(
   selector: (state: TemporalState<{ project: Project }>) => T,
 ): T => useStore(useProjectStore.temporal, selector);
+
+/**
+ * Wrap a drag/pointer gesture that calls a store action on every move event
+ * (velocity drag, note move/resize, marquee...) with these so the whole
+ * gesture becomes ONE undo step instead of one per pointermove. zundo pushes
+ * to history on every tracked `set()` by default; pausing during the
+ * gesture and resuming on release relies on the fact that the last entry
+ * pushed before pause() is the pre-gesture state, and nothing pushes again
+ * until the next tracked set() after resume() — so undo lands exactly back
+ * at "before the drag," not one pixel in.
+ */
+export function pauseHistory(): void {
+  useProjectStore.temporal.getState().pause();
+}
+
+export function resumeHistory(): void {
+  useProjectStore.temporal.getState().resume();
+}
