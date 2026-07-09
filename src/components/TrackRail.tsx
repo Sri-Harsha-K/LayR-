@@ -177,8 +177,13 @@ export function TrackRail() {
     dragFromIndex.current = null;
   };
 
+  const trackRailWidth = useUiStore((s) => s.trackRailWidth);
+
   return (
-    <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-hairline bg-surface-1">
+    <aside
+      className="flex shrink-0 flex-col overflow-y-auto border-r border-hairline bg-surface-1"
+      style={{ width: trackRailWidth }}
+    >
       {/* Reserves the same vertical space as ArrangementView's toolbar+ruler
           header, so track row 0 here lines up with track lane 0 there. */}
       <div className="shrink-0 border-b border-hairline bg-surface-1" style={{ height: ARRANGEMENT_HEADER_HEIGHT }} />

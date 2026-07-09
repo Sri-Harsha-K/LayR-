@@ -16,9 +16,10 @@ const TABS: { id: BottomPanelTab; label: string; key: string }[] = [
 export function BottomDock() {
   const activeTab = useUiStore((s) => s.bottomPanelTab);
   const setTab = useUiStore((s) => s.setBottomPanelTab);
+  const bottomDockHeight = useUiStore((s) => s.bottomDockHeight);
 
   return (
-    <section className="flex h-64 shrink-0 flex-col border-t border-hairline bg-surface-1">
+    <section className="flex shrink-0 flex-col border-t border-hairline bg-surface-1" style={{ height: bottomDockHeight }}>
       <div className="flex items-center gap-1 border-b border-hairline px-2 pt-2">
         {TABS.map((tab) => (
           <button

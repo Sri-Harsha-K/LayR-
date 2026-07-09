@@ -26,6 +26,11 @@ interface UiState {
   metronomeEnabled: boolean;
   isPoweredOn: boolean; // AudioContext resumed via the power-on overlay
 
+  /** Track rail width in px, drag-resizable via the ResizeHandle between it and the main view. */
+  trackRailWidth: number;
+  /** BottomDock height in px, drag-resizable via the ResizeHandle above it. */
+  bottomDockHeight: number;
+
   /** Electron: the real .dawproj folder path. Browser: an opaque key into browser.ts's directory-handle cache. Undefined = never saved/opened ("Save" behaves like "Save As"). */
   openProjectRef?: string;
   isProjectDirty: boolean;
@@ -44,6 +49,9 @@ interface UiState {
   setLoopRangeAuto: (startTicks: number, endTicks: number) => void;
   setLoopFollowsArrangement: (follows: boolean) => void;
   setMetronomeEnabled: (enabled: boolean) => void;
+  /** Adds a delta (px, from ResizeHandle) rather than setting an absolute value — clamps to a sane range. */
+  resizeTrackRail: (deltaPx: number) => void;
+  resizeBottomDock: (deltaPx: number) => void;
   powerOn: () => void;
   setOpenProjectRef: (ref: string | undefined) => void;
   setProjectDirty: (dirty: boolean) => void;
@@ -66,6 +74,8 @@ export const useUiStore = create<UiState>((set) => ({
   loopFollowsArrangement: true,
   metronomeEnabled: false,
   isPoweredOn: false,
+  trackRailWidth: 224, // matches the old fixed w-56
+  bottomDockHeight: 256, // matches the old fixed h-64
   openProjectRef: undefined,
   isProjectDirty: false,
 
@@ -82,6 +92,13 @@ export const useUiStore = create<UiState>((set) => ({
   setLoopRangeAuto: (startTicks, endTicks) => set({ loopStartTicks: startTicks, loopEndTicks: endTicks }),
   setLoopFollowsArrangement: (follows) => set({ loopFollowsArrangement: follows }),
   setMetronomeEnabled: (enabled) => set({ metronomeEnabled: enabled }),
+  // Dragging the handle right grows the rail; dragging the one above
+  // BottomDock down shrinks it (the boundary moves toward BottomDock's own
+  // content) — opposite signs are intentional, not a copy-paste slip.
+  resizeTrackRail: (deltaPx) =>
+    set((s) => ({ trackRailWidth: Math.max(160, Math.min(420, s.trackRailWidth + deltaPx)) })),
+  resizeBottomDock: (deltaPx) =>
+    set((s) => ({ bottomDockHeight: Math.max(140, Math.min(520, s.bottomDockHeight - deltaPx)) })),
   powerOn: () => set({ isPoweredOn: true }),
   setOpenProjectRef: (ref) => set({ openProjectRef: ref }),
   setProjectDirty: (dirty) => set({ isProjectDirty: dirty }),
