@@ -104,6 +104,7 @@ export function useKeyboardShortcuts() {
           else void audioEngine.play();
           break;
         case 'Enter':
+        case '0':
           audioEngine.returnToZero();
           break;
         case 'Escape':
