@@ -1,6 +1,8 @@
 import type { AudioFilePayload, OpenedProject, PlatformAdapter, SampleFile } from './types';
 import type { Project } from '../state/types';
 import { generateId } from '../utils/id';
+import { buildZip, type ZipEntry } from '../engine/zipWriter';
+import { readZip } from '../engine/zipReader';
 
 // File System Access API additions TypeScript's bundled DOM lib doesn't
 // include yet (it has the FileSystemDirectoryHandle/FileSystemFileHandle/
@@ -43,7 +45,74 @@ function supportsFileSystemAccess(): boolean {
 async function ensureReadWritePermission(handle: FileSystemDirectoryHandle): Promise<void> {
   const opts = { mode: 'readwrite' as const };
   if ((await handle.queryPermission?.(opts)) === 'granted') return;
-  await handle.requestPermission?.(opts);
+  const result = await handle.requestPermission?.(opts);
+  if (result !== 'granted') {
+    throw new Error('Permission to read/write that folder was denied.');
+  }
+}
+
+/** Distinguishes "user dismissed the picker" (a no-op, not an error) from every other failure, which should propagate and be shown to the user instead of silently doing nothing. */
+function isUserCancelled(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
+// Firefox/Safari have no directory-access API at all, so save/open falls
+// back to a single downloadable/importable bundle instead of a real
+// in-place folder: a .layrproj file is just zipWriter.ts's own STORE-only
+// zip format (project.json + audio/*), reusing the exact entry-name
+// convention writeProjectDirectory already uses for the FSA path above.
+// There's no persistent handle in this fallback, so "Save" behaves like
+// "Save As" every time — a real, if less convenient, save/open path rather
+// than the previous "throw and tell the user to use a different browser."
+const BUNDLE_EXTENSION = '.layrproj';
+const PROJECT_ENTRY = 'project.json';
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[/\\:*?"<>|]/g, '_').trim() || 'Untitled';
+}
+
+function downloadBytes(bytes: Uint8Array<ArrayBuffer>, fileName: string): void {
+  const blob = new Blob([bytes], { type: 'application/zip' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function pickBundleFile(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = BUNDLE_EXTENSION;
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.click();
+  });
+}
+
+async function openProjectBundle(): Promise<OpenedProject | null> {
+  const file = await pickBundleFile();
+  if (!file) return null; // user cancelled the picker
+  const entries = readZip(new Uint8Array(await file.arrayBuffer()));
+  const projectEntry = entries.find((e) => e.name === PROJECT_ENTRY);
+  if (!projectEntry) throw new Error(`That file doesn't look like a ${BUNDLE_EXTENSION} project bundle.`);
+  const project = JSON.parse(new TextDecoder().decode(projectEntry.data)) as Project;
+  const audioFiles: AudioFilePayload[] = entries
+    .filter((e) => e.name !== PROJECT_ENTRY)
+    .map((e) => ({ relPath: e.name, data: e.data.buffer as ArrayBuffer }));
+  return { project, audioFiles };
+}
+
+async function saveProjectBundle(project: Project, audioFiles: AudioFilePayload[]): Promise<{ projectDirPath?: string } | null> {
+  const entries: ZipEntry[] = [
+    { name: PROJECT_ENTRY, data: new TextEncoder().encode(JSON.stringify(project)) },
+    ...audioFiles.map((f) => ({ name: f.relPath, data: new Uint8Array(f.data) })),
+  ];
+  downloadBytes(buildZip(entries), `${sanitizeFileName(project.name)}${BUNDLE_EXTENSION}`);
+  return { projectDirPath: undefined };
 }
 
 async function writeProjectDirectory(
@@ -142,12 +211,13 @@ export const browserPlatform: PlatformAdapter = {
   isElectron: false,
 
   async openProject(): Promise<OpenedProject | null> {
-    if (!supportsFileSystemAccess()) return null; // Firefox/Safari: no real open, autosave recovery is the safety net
+    if (!supportsFileSystemAccess()) return openProjectBundle();
     let handle: FileSystemDirectoryHandle;
     try {
       handle = await window.showDirectoryPicker!({ mode: 'readwrite' });
-    } catch {
-      return null; // user cancelled the picker
+    } catch (err) {
+      if (isUserCancelled(err)) return null;
+      throw err;
     }
     await ensureReadWritePermission(handle);
     const { project, audioFiles } = await readProjectDirectory(handle);
@@ -161,13 +231,14 @@ export const browserPlatform: PlatformAdapter = {
     audioFiles: AudioFilePayload[],
     projectDirPath?: string,
   ): Promise<{ projectDirPath?: string } | null> {
-    if (!supportsFileSystemAccess()) return null;
+    if (!supportsFileSystemAccess()) return saveProjectBundle(project, audioFiles);
     let handle = projectDirPath ? openHandles.get(projectDirPath) : undefined;
     if (!handle) {
       try {
         handle = await window.showDirectoryPicker!({ mode: 'readwrite' });
-      } catch {
-        return null; // user cancelled the picker
+      } catch (err) {
+        if (isUserCancelled(err)) return null;
+        throw err;
       }
     }
     await ensureReadWritePermission(handle);

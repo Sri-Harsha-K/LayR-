@@ -15,6 +15,8 @@ interface UiState {
   /** Timeline (linear arrangement) vs Session (clip launcher) — mutually exclusive playback scheduling, see engine/sessionPlayer.ts. */
   mainView: MainView;
   isExportDialogOpen: boolean;
+  /** User-facing error surfaced by Toast.tsx — e.g. save/open/export failures that would otherwise fail silently. Null = no toast shown. */
+  toastMessage: string | null;
   pxPerBeat: number; // horizontal zoom for the arrangement view
   loopEnabled: boolean;
   loopStartTicks: number;
@@ -33,6 +35,7 @@ interface UiState {
   setBottomPanelTab: (tab: BottomPanelTab) => void;
   setMainView: (view: MainView) => void;
   setExportDialogOpen: (open: boolean) => void;
+  setToast: (message: string | null) => void;
   setPxPerBeat: (px: number) => void;
   setLoopEnabled: (enabled: boolean) => void;
   /** Manual override (ruler drag) — also stops loopEndTicks from auto-following the arrangement. */
@@ -51,6 +54,7 @@ export const useUiStore = create<UiState>((set) => ({
   bottomPanelTab: 'stepsequencer',
   mainView: 'timeline',
   isExportDialogOpen: false,
+  toastMessage: null,
   pxPerBeat: 32,
   // A step sequencer's whole point is looping playback, so loop defaults on
   // over a 1-bar window — exactly the span of a freshly-added pattern clip
@@ -70,6 +74,7 @@ export const useUiStore = create<UiState>((set) => ({
   setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
   setMainView: (view) => set({ mainView: view }),
   setExportDialogOpen: (open) => set({ isExportDialogOpen: open }),
+  setToast: (message) => set({ toastMessage: message }),
   setPxPerBeat: (px) => set({ pxPerBeat: Math.max(4, Math.min(400, px)) }),
   setLoopEnabled: (enabled) => set({ loopEnabled: enabled }),
   setLoopRange: (startTicks, endTicks) =>

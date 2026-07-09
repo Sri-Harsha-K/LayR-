@@ -63,32 +63,57 @@ async function loadOpened(opened: OpenedProject): Promise<Project> {
   return project;
 }
 
+// Save/open used to call the platform picker with no try/catch at all —
+// a real failure (permission denied, unsupported browser, a picker error
+// that isn't a plain user-cancel) became an unhandled promise rejection
+// with zero UI feedback, since every call site does `void saveProject()`.
+// Every entry point below now catches and surfaces the message via
+// uiStore's toast instead of failing silently.
+function reportFailure(err: unknown, fallback: string): void {
+  useUiStore.getState().setToast(err instanceof Error ? err.message : fallback);
+}
+
 export async function saveProject(): Promise<boolean> {
   const project = useProjectStore.getState().project;
   const projectDirPath = useUiStore.getState().openProjectRef;
-  const result = await platform.saveProject(project, collectAudioFiles(project), projectDirPath);
-  if (!result) return false;
-  if (result.projectDirPath) useUiStore.getState().setOpenProjectRef(result.projectDirPath);
-  markSaved(project);
-  return true;
+  try {
+    const result = await platform.saveProject(project, collectAudioFiles(project), projectDirPath);
+    if (!result) return false; // user cancelled the picker — not an error
+    if (result.projectDirPath) useUiStore.getState().setOpenProjectRef(result.projectDirPath);
+    markSaved(project);
+    return true;
+  } catch (err) {
+    reportFailure(err, 'Could not save the project.');
+    return false;
+  }
 }
 
 export async function saveProjectAs(): Promise<boolean> {
   const project = useProjectStore.getState().project;
-  const result = await platform.saveProject(project, collectAudioFiles(project), undefined);
-  if (!result) return false;
-  if (result.projectDirPath) useUiStore.getState().setOpenProjectRef(result.projectDirPath);
-  markSaved(project);
-  return true;
+  try {
+    const result = await platform.saveProject(project, collectAudioFiles(project), undefined);
+    if (!result) return false;
+    if (result.projectDirPath) useUiStore.getState().setOpenProjectRef(result.projectDirPath);
+    markSaved(project);
+    return true;
+  } catch (err) {
+    reportFailure(err, 'Could not save the project.');
+    return false;
+  }
 }
 
 export async function openProject(): Promise<boolean> {
-  const opened = await platform.openProject();
-  if (!opened) return false;
-  const project = await loadOpened(opened);
-  useUiStore.getState().setOpenProjectRef(opened.projectDirPath);
-  markSaved(project);
-  return true;
+  try {
+    const opened = await platform.openProject();
+    if (!opened) return false;
+    const project = await loadOpened(opened);
+    useUiStore.getState().setOpenProjectRef(opened.projectDirPath);
+    markSaved(project);
+    return true;
+  } catch (err) {
+    reportFailure(err, 'Could not open the project.');
+    return false;
+  }
 }
 
 /**

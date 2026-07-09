@@ -1024,3 +1024,47 @@ the rest of that file already uses for move/resize.
   actually hearing an audio clip's continuous fade and a drum/synth clip's
   per-hit ducking, and dragging a keyframe dot by hand, has not been checked
   by a human or visual agent yet.
+
+## Save/Open error surfacing + Firefox/Safari fallback (post-Phase 9)
+
+A user reported Save/Open/Save As silently doing nothing on Firefox. Two
+real bugs, not one:
+
+- **Every call site did `void openProject()` / `void saveProject()` with no
+  error handling anywhere in the chain** — a real failure (permission
+  denied, an unsupported browser) became an unhandled promise rejection,
+  invisible in the UI. `browser.ts`'s picker `catch` blocks also treated
+  *any* thrown error as "user cancelled" and quietly returned `null`,
+  which is wrong for a real failure. Fixed: a new `isUserCancelled` only
+  treats `DOMException('AbortError')` that way; everything else propagates.
+  `projectIO.ts`'s `saveProject`/`saveProjectAs`/`openProject` now catch
+  and surface the message via a new `uiStore.toastMessage` +
+  `components/Toast.tsx` (bottom-of-screen, auto-dismisses, was previously
+  flagged in Phase 4/5's "known issues" as a real gap — this is that fix).
+- **Firefox/Safari genuinely have no directory-access API at all**, which
+  is what the user was actually hitting — previously this meant
+  `browser.ts` just returned `null` (now would've meant a clear-but-final
+  "not supported" toast). Instead, `browser.ts` now has a real fallback for
+  browsers without `showDirectoryPicker`: a `.layrproj` file — literally
+  zipWriter.ts's own STORE-only zip format (`project.json` + `audio/*`,
+  same entry-name convention `writeProjectDirectory` already uses for the
+  File System Access path) — downloaded on Save, picked via `<input
+  type=file>` on Open. New `engine/zipReader.ts` (unit-tested, including a
+  reject-on-real-compression case and a full round-trip against
+  `zipWriter.ts`'s own output) is the reader half.
+  - **There's no persistent handle in this fallback**, so "Save" behaves
+    like "Save As" every time in Firefox/Safari — a real, if less
+    convenient, save/open path rather than a dead end. Chromium/Edge are
+    unaffected — they still use the real File System Access API path with
+    in-place saves.
+  - `platform/browser.ts` now imports `engine/zipWriter.ts` /
+    `engine/zipReader.ts` — a `platform` -> `engine` import direction that
+    didn't exist before (previously only `engine/projectIO.ts` imported
+    `platform`, the other way). Not a circular dependency (both zip
+    modules are leaf utilities with no dependency back on `platform`), but
+    flagging the new cross-layer edge since `CLAUDE.md`'s layering
+    description didn't previously mention it.
+- Not interactively verified in a real Firefox/Safari session — no browser
+  tool connected this session. `zipReader.ts`'s round-trip test is the
+  strongest available confidence without one; the actual download-then-
+  reopen flow in a live browser is the most important remaining check.
