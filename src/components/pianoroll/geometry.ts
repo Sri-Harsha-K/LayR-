@@ -1,4 +1,4 @@
-import { TICKS_PER_BAR, TICKS_PER_BEAT, TICKS_PER_SIXTEENTH } from '../../engine/time';
+import { TICKS_PER_BAR, TICKS_PER_BEAT, TICKS_PER_SIXTEENTH, snapTicksDown, snapTicksNearest } from '../../engine/time';
 
 export const PITCH_MIN = 24; // C1
 export const PITCH_MAX = 95; // B6
@@ -35,13 +35,8 @@ export function xToTick(x: number, pxPerTick: number): number {
   return Math.max(0, x / pxPerTick);
 }
 
-export function snapDown(ticks: number, snapTicks: number): number {
-  return Math.floor(ticks / snapTicks) * snapTicks;
-}
-
-export function snapNearest(ticks: number, snapTicks: number): number {
-  return Math.round(ticks / snapTicks) * snapTicks;
-}
+export const snapDown = snapTicksDown;
+export const snapNearest = snapTicksNearest;
 
 /** All playable pitches, highest first — matches the piano roll's top-to-bottom row order. */
 export const PITCHES: number[] = Array.from({ length: PITCH_MAX - PITCH_MIN + 1 }, (_, i) => PITCH_MAX - i);

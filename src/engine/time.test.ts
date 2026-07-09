@@ -161,6 +161,16 @@ describe('clampSwing / clampBpm', () => {
     expect(clampBpm(120)).toBe(120);
     expect(clampBpm(9999)).toBe(240);
   });
+
+  it('falls back to the default bpm for non-finite input', () => {
+    expect(clampBpm(Number.NaN)).toBe(120);
+    expect(clampBpm(Number.POSITIVE_INFINITY)).toBe(120);
+  });
+
+  it('keeps time conversion finite for bad bpm input', () => {
+    expect(ticksToSeconds(TICKS_PER_BEAT, Number.NaN)).toBeCloseTo(0.5, 10);
+    expect(secondsToTicks(0.5, Number.NaN)).toBeCloseTo(TICKS_PER_BEAT, 10);
+  });
 });
 
 describe('snapTicksDown / snapTicksNearest', () => {

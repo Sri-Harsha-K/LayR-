@@ -19,12 +19,12 @@ export const TICKS_PER_BAR = TICKS_PER_BEAT * BEATS_PER_BAR; // 3840
 export const SIXTEENTHS_PER_BAR = TICKS_PER_BAR / TICKS_PER_SIXTEENTH; // 16
 
 export function ticksToSeconds(ticks: number, bpm: number): number {
-  const secondsPerBeat = 60 / bpm;
+  const secondsPerBeat = 60 / clampBpm(bpm);
   return (ticks / TICKS_PER_BEAT) * secondsPerBeat;
 }
 
 export function secondsToTicks(seconds: number, bpm: number): number {
-  const secondsPerBeat = 60 / bpm;
+  const secondsPerBeat = 60 / clampBpm(bpm);
   return (seconds / secondsPerBeat) * TICKS_PER_BEAT;
 }
 
@@ -90,8 +90,13 @@ export function clampSwing(swing: number): number {
   return Math.max(0, Math.min(0.66, swing));
 }
 
+export const MIN_BPM = 40;
+export const MAX_BPM = 240;
+export const DEFAULT_BPM = 120;
+
 export function clampBpm(bpm: number): number {
-  return Math.max(40, Math.min(240, bpm));
+  if (!Number.isFinite(bpm)) return DEFAULT_BPM;
+  return Math.max(MIN_BPM, Math.min(MAX_BPM, bpm));
 }
 
 /** Snaps a tick value down to the nearest multiple of `resolutionTicks`. */
