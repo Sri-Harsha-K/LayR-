@@ -5,6 +5,7 @@ import { SessionView } from './components/session/SessionView';
 import { BottomDock } from './components/BottomDock';
 import { PowerOnOverlay } from './components/PowerOnOverlay';
 import { CaptureView } from './components/capture/CaptureView';
+import { ExportDialog } from './components/ExportDialog';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAudioEngine } from './hooks/useAudioEngine';
 import { useProjectPersistence } from './hooks/useProjectPersistence';
@@ -28,6 +29,7 @@ function App() {
       </div>
       <BottomDock />
       <PowerOnOverlay />
+      <ExportDialog />
     </div>
   );
 }

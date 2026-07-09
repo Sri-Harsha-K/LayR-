@@ -10,6 +10,7 @@ import { useUiStore } from '../state/uiStore';
 import type { Project } from '../state/types';
 import { getSampleBuffer, refToRelPath, registerSampleAtRef, relPathToRef } from './sampleRegistry';
 import { encodeWav } from './wavEncoder';
+import { recordRecentProject } from '../utils/recentProjects';
 
 let lastSavedProject: Project | null = null;
 
@@ -48,6 +49,7 @@ export function isProjectDirty(project: Project): boolean {
 function markSaved(project: Project): void {
   lastSavedProject = project;
   useUiStore.getState().setProjectDirty(false);
+  recordRecentProject(project.name);
 }
 
 async function loadOpened(opened: OpenedProject): Promise<void> {

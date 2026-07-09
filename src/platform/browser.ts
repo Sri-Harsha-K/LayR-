@@ -20,6 +20,13 @@ declare global {
 const PROJECT_FILE = 'project.json';
 const AUDIO_DIR = 'audio';
 
+const EXPORT_MIME_TYPES: Record<string, string> = {
+  wav: 'audio/wav',
+  mp3: 'audio/mpeg',
+  flac: 'audio/flac',
+  zip: 'application/zip',
+};
+
 // PlatformAdapter's saveProject/openProject pass a `projectDirPath: string`
 // to mean "save in place" / identify what was opened — designed around
 // Electron's real path string. A FileSystemDirectoryHandle isn't a string
@@ -170,12 +177,14 @@ export const browserPlatform: PlatformAdapter = {
     return { projectDirPath: key };
   },
 
-  async exportWav(bytes: Uint8Array<ArrayBuffer>, suggestedName: string): Promise<boolean> {
-    const blob = new Blob([bytes], { type: 'audio/wav' });
+  async exportFile(bytes: Uint8Array<ArrayBuffer>, suggestedFileName: string): Promise<boolean> {
+    const ext = suggestedFileName.split('.').pop()?.toLowerCase();
+    const mimeType = EXPORT_MIME_TYPES[ext ?? ''] ?? 'application/octet-stream';
+    const blob = new Blob([bytes], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = suggestedName.endsWith('.wav') ? suggestedName : `${suggestedName}.wav`;
+    a.download = suggestedFileName;
     document.body.appendChild(a);
     a.click();
     a.remove();

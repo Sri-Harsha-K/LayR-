@@ -9,6 +9,7 @@ import { SNAP_OPTIONS, snapNearest, tickToX, xToTick } from '../pianoroll/geomet
 import { ARRANGEMENT_TOOLBAR_HEIGHT, TRACK_ROW_HEIGHT as ROW_HEIGHT } from '../trackLayout';
 import { generateId } from '../../utils/id';
 import { SAMPLE_DRAG_MIME, type SampleDragPayload } from '../../utils/dragTypes';
+import { StartScreen } from '../StartScreen';
 import type { Clip, Track } from '../../state/types';
 
 const DEFAULT_SNAP_INDEX = 2; // 1/4 (one beat) — see SNAP_OPTIONS
@@ -255,8 +256,6 @@ function ClipBlock({
 
 export function ArrangementView() {
   const tracks = useProjectStore((s) => s.project.tracks);
-  const addTrack = useProjectStore((s) => s.addTrack);
-  const addDefaultPatternClip = useProjectStore((s) => s.addDefaultPatternClip);
   const updateClip = useProjectStore((s) => s.updateClip);
   const moveClipToTrack = useProjectStore((s) => s.moveClipToTrack);
   const addClip = useProjectStore((s) => s.addClip);
@@ -278,26 +277,8 @@ export function ArrangementView() {
   const pxPerTick = pxPerBeat / TICKS_PER_BEAT;
   const snapTicks = SNAP_OPTIONS[snapIndex]!.ticks;
 
-  const handleAddDrumTrack = () => {
-    const trackId = addTrack('drum');
-    const clipId = addDefaultPatternClip(trackId);
-    selectClip(trackId, clipId);
-    setBottomPanelTab('stepsequencer');
-  };
-
   if (tracks.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-ink-faint">
-        <p>Nothing here yet.</p>
-        <button
-          type="button"
-          onClick={handleAddDrumTrack}
-          className="rounded-md border border-track-1 px-4 py-2 text-sm text-track-1 transition-colors hover:bg-track-1/10"
-        >
-          Add a drum track
-        </button>
-      </div>
-    );
+    return <StartScreen />;
   }
 
   const contentWidthTicks = Math.max(furthestClipEndTicks(tracks) + TICKS_PER_BAR * 4, TICKS_PER_BAR * 16);

@@ -5,7 +5,6 @@ import { audioEngine } from '../engine/AudioEngine';
 import { subscribeTransportState } from '../engine/transport';
 import { toggleRecording } from '../engine/recordingController';
 import { openProject, saveProject, saveProjectAs } from '../engine/projectIO';
-import { bounceProject } from '../engine/render';
 import { getTransientState } from '../state/transient';
 import { useIsRecording } from '../hooks/useIsRecording';
 import { TimeDisplay } from './TimeDisplay';
@@ -163,21 +162,10 @@ export function TransportBar() {
   const tracks = useProjectStore((s) => s.project.tracks);
   const armedAudioTrack = tracks.find((t) => t.kind === 'audio' && t.armed);
 
-  const project = useProjectStore((s) => s.project);
+  const setExportDialogOpen = useUiStore((s) => s.setExportDialogOpen);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const isRecording = useIsRecording();
-  const [isBouncing, setIsBouncing] = useState(false);
-
-  const handleBounce = async () => {
-    if (isBouncing) return;
-    setIsBouncing(true);
-    try {
-      await bounceProject(project);
-    } finally {
-      setIsBouncing(false);
-    }
-  };
 
   useEffect(() => subscribeTransportState((event) => setIsPlaying(event === 'started')), []);
 
@@ -268,12 +256,11 @@ export function TransportBar() {
         <MasterMeter />
         <button
           type="button"
-          disabled={isBouncing}
-          onClick={() => void handleBounce()}
-          className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
-          title="Bounce to WAV (Ctrl/Cmd+E)"
+          onClick={() => setExportDialogOpen(true)}
+          className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink-dim hover:text-ink"
+          title="Export (Ctrl/Cmd+E)"
         >
-          {isBouncing ? 'Bouncing…' : 'Bounce to WAV'}
+          Export
         </button>
       </div>
     </header>

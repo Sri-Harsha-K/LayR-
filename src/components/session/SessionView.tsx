@@ -3,6 +3,7 @@ import { useProjectStore } from '../../state/projectStore';
 import { useUiStore } from '../../state/uiStore';
 import * as sessionPlayer from '../../engine/sessionPlayer';
 import { useSessionActiveClip } from '../../hooks/useSessionActiveClip';
+import { StartScreen } from '../StartScreen';
 import type { Clip, Track } from '../../state/types';
 
 const CELL_HEIGHT = 56;
@@ -142,11 +143,7 @@ export function SessionView() {
   }, []);
 
   if (tracks.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center text-sm text-ink-faint">
-        Add a track to start launching clips.
-      </div>
-    );
+    return <StartScreen />;
   }
 
   return (

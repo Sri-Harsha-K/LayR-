@@ -55,9 +55,15 @@ export const electronPlatform: PlatformAdapter = {
     return { projectDirPath: result.projectDirPath };
   },
 
-  async exportWav(bytes: Uint8Array<ArrayBuffer>, suggestedName: string): Promise<boolean> {
+  async exportFile(bytes: Uint8Array<ArrayBuffer>, suggestedFileName: string): Promise<boolean> {
     const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    return getApi().exportWav({ bytes: buffer, suggestedName });
+    // The IPC channel/method are still named "exportWav" (see ipcContract.ts)
+    // — only the renderer-facing PlatformAdapter method needed the more
+    // accurate name, since the wire format was already format-agnostic
+    // (just bytes + a filename) and renaming the channel too would mean
+    // keeping preload.ts's manually-duplicated channel strings in sync for
+    // no functional reason.
+    return getApi().exportWav({ bytes: buffer, suggestedName: suggestedFileName });
   },
 
   async pickSampleFile(): Promise<SampleFile | null> {

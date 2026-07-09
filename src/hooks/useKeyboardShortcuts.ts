@@ -5,7 +5,6 @@ import { audioEngine } from '../engine/AudioEngine';
 import { isPlaying as engineIsPlaying } from '../engine/transport';
 import { toggleRecording } from '../engine/recordingController';
 import { openProject, saveProject, saveProjectAs } from '../engine/projectIO';
-import { bounceProject } from '../engine/render';
 import { getTransientState } from '../state/transient';
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -24,6 +23,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function useKeyboardShortcuts() {
   const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
   const setLoopEnabled = useUiStore((s) => s.setLoopEnabled);
+  const setExportDialogOpen = useUiStore((s) => s.setExportDialogOpen);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -52,9 +52,21 @@ export function useKeyboardShortcuts() {
         return;
       }
 
+      // Browsers intercept Ctrl/Cmd+N for "new window" before page JS ever
+      // sees it — this only fires in Electron, where there's no such
+      // conflict. The Start screen's button still works everywhere either way.
+      if (isMod && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        const trackId = useProjectStore.getState().addTrack('drum');
+        const clipId = useProjectStore.getState().addDefaultPatternClip(trackId);
+        useUiStore.getState().selectClip(trackId, clipId);
+        setBottomPanelTab('stepsequencer');
+        return;
+      }
+
       if (isMod && e.key.toLowerCase() === 'e') {
         e.preventDefault();
-        void bounceProject(useProjectStore.getState().project);
+        setExportDialogOpen(true);
         return;
       }
 
@@ -145,5 +157,5 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [setBottomPanelTab, setLoopEnabled]);
+  }, [setBottomPanelTab, setLoopEnabled, setExportDialogOpen]);
 }

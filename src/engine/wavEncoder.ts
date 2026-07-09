@@ -6,16 +6,23 @@
 // (render.ts).
 import type * as Tone from 'tone';
 
-const BITS_PER_SAMPLE = 16;
-const BYTES_PER_SAMPLE = BITS_PER_SAMPLE / 8;
+export type WavBitDepth = 16 | 24;
 
-function floatTo16BitPcm(sample: number): number {
+function floatToInt(sample: number, maxValue: number): number {
   const clamped = Math.max(-1, Math.min(1, sample));
-  return clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+  return Math.round(clamped < 0 ? clamped * (maxValue + 1) : clamped * maxValue);
 }
 
-/** Encodes a decoded audio buffer as 16-bit PCM WAV bytes. */
-export function encodeWav(buffer: Tone.ToneAudioBuffer): Uint8Array<ArrayBuffer> {
+// DataView has no setInt24 — three bytes written by hand, little-endian,
+// two's-complement (matches setInt16/setInt32's own byte order).
+function writeInt24LE(view: DataView, offset: number, value: number): void {
+  view.setUint8(offset, value & 0xff);
+  view.setUint8(offset + 1, (value >> 8) & 0xff);
+  view.setUint8(offset + 2, (value >> 16) & 0xff);
+}
+
+/** Encodes a decoded audio buffer as PCM WAV bytes at the given bit depth (16, the long-standing default, or 24). */
+export function encodeWav(buffer: Tone.ToneAudioBuffer, bitDepth: WavBitDepth = 16): Uint8Array<ArrayBuffer> {
   const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
   const numFrames = buffer.length;
@@ -23,7 +30,9 @@ export function encodeWav(buffer: Tone.ToneAudioBuffer): Uint8Array<ArrayBuffer>
     buffer.getChannelData(ch),
   );
 
-  const blockAlign = numChannels * BYTES_PER_SAMPLE;
+  const bytesPerSample = bitDepth / 8;
+  const maxValue = 2 ** (bitDepth - 1) - 1;
+  const blockAlign = numChannels * bytesPerSample;
   const dataSize = numFrames * blockAlign;
   const bytes = new Uint8Array(44 + dataSize);
   const view = new DataView(bytes.buffer);
@@ -42,15 +51,17 @@ export function encodeWav(buffer: Tone.ToneAudioBuffer): Uint8Array<ArrayBuffer>
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, sampleRate * blockAlign, true); // byte rate
   view.setUint16(32, blockAlign, true);
-  view.setUint16(34, BITS_PER_SAMPLE, true);
+  view.setUint16(34, bitDepth, true);
   writeString(36, 'data');
   view.setUint32(40, dataSize, true);
 
   let offset = 44;
   for (let frame = 0; frame < numFrames; frame++) {
     for (let ch = 0; ch < numChannels; ch++) {
-      view.setInt16(offset, floatTo16BitPcm(channelData[ch]![frame]!), true);
-      offset += BYTES_PER_SAMPLE;
+      const intSample = floatToInt(channelData[ch]![frame]!, maxValue);
+      if (bitDepth === 16) view.setInt16(offset, intSample, true);
+      else writeInt24LE(view, offset, intSample);
+      offset += bytesPerSample;
     }
   }
 

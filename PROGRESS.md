@@ -10,10 +10,12 @@
 - Phase 5 — Arrangement + persistence + export: done.
 - Phase 6 — Layr-style theme + Sound tab + Capture view: done.
 - Phase 7 — Session view + scenes engine: done.
-- **Phase 8 — Library tab: done.**
-- Phase 9 (Export dialog + Start screen) — scoped, not yet built. See
-  `C:\Users\leo\.claude\plans\enchanted-squishing-island.md` for the full
-  staged plan.
+- Phase 8 — Library tab: done.
+- **Phase 9 — Export dialog + Start screen: done.**
+
+The Layr-style redesign (Phases 6-9) is now complete. See
+`C:\Users\leo\.claude\plans\enchanted-squishing-island.md` for the plan
+this was built from.
 
 ## Phase 0 summary
 
@@ -849,6 +851,118 @@ earlier decision.
   option from the earlier decision point was not chosen) — Library only
   ever shows samples already registered this session via recording or the
   existing per-lane sample picker.
+
+## Phase 9 summary
+
+The last phase of the redesign: a real Export dialog (the mock's WAV/MP3/
+FLAC/Stems format picker, sample rate, bit depth) replacing the plain
+"Bounce to WAV" button, and a Start screen replacing the bare empty-state
+message.
+
+- **`engine/wavEncoder.ts`** now takes a `WavBitDepth` (16, unchanged
+  default, or 24 — hand-written 24-bit little-endian PCM since `DataView`
+  has no `setInt24`).
+- **`engine/zipWriter.ts`** (new, unit-tested via its own minimal reader in
+  `zipWriter.test.ts` — no zip library was available to cross-check
+  against, so the test round-trips through the format itself, verifying
+  CRC32/offsets/names): a hand-rolled STORE-only (uncompressed) ZIP writer,
+  same "small enough to own, no new dependency" precedent as
+  `wavEncoder.ts` — audio bytes barely compress anyway, so skipping
+  deflate costs nothing real for Stems export.
+- **`engine/mp3Encoder.ts`** (new): wraps `@breezystack/lamejs` (added as a
+  real dependency — pure JS, no WASM, actively-maintained fork of the
+  original `lamejs`), encoding in 1152-sample blocks per its API.
+- **FLAC was evaluated and deliberately not integrated.** The only
+  reasonably-complete option (`libflacjs`) is WASM+Emscripten, last
+  published in 2020, and typically used via a Web Worker — real
+  integration risk (asset bundling under Vite/Electron, whether it
+  actually instantiates) that this session had no way to verify without a
+  connected browser tool. Per the plan's own stated fallback, `render.ts`'s
+  `exportProject` throws a clear `'FLAC export is not available in this
+  build yet.'` for that one format instead of shipping an unverified
+  integration; the Export dialog shows FLAC as a selectable-but-disabled
+  option with that message inline, matching the mock's layout without
+  faking functionality. Revisit if a maintained pure-JS/WASM FLAC encoder
+  with real usage evidence turns up.
+- **`engine/render.ts` reshaped around one shared `renderToBuffer`** (the
+  old `renderProjectToWav`'s `Tone.Offline` call, now parameterized by
+  sample rate) that every format builds on: `renderProjectToWav` (encode),
+  `renderProjectToMp3` (encode), and `renderStemsToZip` — which renders the
+  project once per track via a new `projectSoloingOnlyTrack` (forces
+  exactly one track's `mixer.solo`/`mute` regardless of the project's real
+  state, an in-memory clone only) and zips the per-track WAVs. **Stems
+  still pass through the master effects chain** (limiter etc.) — a
+  deliberate simplification, not a raw pre-master mix; flagged below.
+  `bounceProject` (old one-click WAV-only path) is now a thin wrapper
+  around the new `exportProject(project, options)`.
+- **`PlatformAdapter.exportWav` → `exportFile`**, since it was already
+  format-agnostic (just bytes + a filename) — `browser.ts`'s implementation
+  now derives the download's MIME type from the filename's real extension
+  (a small `wav/mp3/flac/zip` lookup) instead of hardcoding `audio/wav`.
+  **The Electron IPC channel itself was deliberately left named
+  `exportWav`/`export:wav`** (only the renderer-facing `PlatformAdapter`
+  method needed the more accurate name) — renaming the wire channel too
+  would mean keeping `preload.ts`'s manually-duplicated channel-name
+  strings in sync (the brittleness `CLAUDE.md`/`electron/preload.ts`'s own
+  comment already flags) for no functional benefit. `electron/main.ts`'s
+  save-dialog now derives its filter/title from the actual extension on
+  `suggestedName` instead of hardcoding "WAV Audio".
+- **`components/ExportDialog.tsx`** (new): format grid, sample rate
+  (44.1/48/96 kHz — verified against the installed Tone `.d.ts` that
+  `Tone.Offline`'s 4th param genuinely accepts this), bit depth (hidden for
+  MP3, which doesn't have one), a live length/estimated-size readout, and
+  the FLAC-disabled state described above. Opened by `TransportBar`'s
+  renamed "Export" button and by Ctrl/Cmd+E (previously an instant no-
+  dialog WAV bounce — now opens the dialog, since format is no longer a
+  foregone conclusion).
+- **`components/StartScreen.tsx`** (new) replaces both `ArrangementView`'s
+  and `SessionView`'s bare "Nothing here yet" empty states (same trigger —
+  `tracks.length === 0` — so no new state needed to decide when to show
+  it). Three options:
+  - **New empty project** — same "add a drum track, jump to step
+    sequencer" flow the old empty state already had, restyled. Also bound
+    to Ctrl/Cmd+N — which only fires in Electron, since browsers intercept
+    that combination for "new window" before page JS ever sees it; the
+    button itself still works everywhere regardless.
+  - **Open recent** — a new `utils/recentProjects.ts` keeps a small
+    `localStorage`-backed list (name + last-opened time), updated whenever
+    `projectIO.ts`'s `markSaved` fires (save, save-as, or open). **This is
+    informational, not a direct-reopen mechanism** — clicking it still
+    opens the normal `platform.openProject()` picker. Genuinely bypassing
+    the picker would need a new no-dialog Electron IPC method plus, in the
+    browser, persisting a `FileSystemDirectoryHandle` across sessions
+    (technically possible — browsers do allow `requestPermission()` on a
+    stored handle from a user-gesture-triggered click — but real added
+    surface this pass didn't build); scoped down deliberately rather than
+    promising a seamless reopen that wasn't verified.
+  - **Start from a template** — `utils/projectTemplates.ts`'s
+    `applyProjectTemplate` seeds Beat/Podcast/Band Session by calling the
+    *same* store actions (`addTrack`/`addDefaultPatternClip`/
+    `addDefaultMidiClip`) a user clicking through the UI would, rather than
+    hand-building raw `Project` objects — a template track is
+    indistinguishable from one a user just created, and can't drift from
+    those factories over time.
+
+### Known issues / flags for review (Phase 9)
+
+- Not interactively verified — no browser tool connected this session.
+  This phase especially: MP3 encoding correctness (does it actually sound
+  right, not just "doesn't throw"), the Stems zip actually opening in a
+  real archive tool, and the Export dialog's format-switching UI all need
+  a real pass. `zipWriter.ts` has a unit test verifying its own format
+  round-trips correctly, which is the most confidence available without a
+  live environment.
+- FLAC is a visible-but-disabled option, not a missing one — see the
+  summary above for why, and revisit if a real, verifiable pure-JS/WASM
+  encoder becomes available.
+- Stems export includes the master effects chain (limiter etc.) on every
+  track's render, not a raw pre-master mix — some workflows expect stems
+  without master processing. Revisit if that turns out to matter.
+- "Open recent" doesn't bypass the file/directory picker (see summary) —
+  it's a reminder list, not one-click reopen.
+- New dependency: `@breezystack/lamejs` (MP3 encoding). No new dependency
+  for zip (hand-rolled) or the Start screen/recents (browser/localStorage
+  APIs only).
 
 ## Volume keyframe automation (post-Phase 5)
 

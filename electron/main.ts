@@ -120,10 +120,15 @@ ipcMain.handle(
 );
 
 ipcMain.handle(IPC_CHANNELS.exportWav, async (_evt, args: IpcExportWavArgs): Promise<boolean> => {
+  // Despite the channel's name (kept as-is, see platform/electron.ts's own
+  // comment on why), `suggestedName` always already carries its real
+  // extension now — WAV, MP3, or a stems .zip — so the dialog filter is
+  // derived from it instead of being hardcoded to WAV.
+  const ext = path.extname(args.suggestedName).slice(1).toLowerCase() || 'wav';
   const result = await dialog.showSaveDialog({
-    title: 'Bounce to WAV',
-    defaultPath: args.suggestedName.endsWith('.wav') ? args.suggestedName : `${args.suggestedName}.wav`,
-    filters: [{ name: 'WAV Audio', extensions: ['wav'] }],
+    title: 'Export',
+    defaultPath: args.suggestedName,
+    filters: [{ name: `${ext.toUpperCase()} File`, extensions: [ext] }],
   });
   if (result.canceled || !result.filePath) return false;
   await fs.writeFile(result.filePath, Buffer.from(args.bytes));

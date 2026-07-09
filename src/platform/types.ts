@@ -38,8 +38,8 @@ export interface PlatformAdapter {
     projectDirPath?: string,
   ): Promise<{ projectDirPath?: string } | null>;
 
-  /** Prompts for a destination and writes the bounced WAV bytes. */
-  exportWav(bytes: Uint8Array<ArrayBuffer>, suggestedName: string): Promise<boolean>;
+  /** Prompts for a destination and writes the exported bytes. `suggestedFileName` already includes the real extension (.wav/.mp3/.zip/...) — this method is format-agnostic. */
+  exportFile(bytes: Uint8Array<ArrayBuffer>, suggestedFileName: string): Promise<boolean>;
 
   /** Opens a file picker for a user audio sample (drum lane override). */
   pickSampleFile(): Promise<SampleFile | null>;
