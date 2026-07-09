@@ -25,7 +25,7 @@ export async function toggleRecording(): Promise<void> {
     if (!blob) return;
 
     const arrayBuffer = await blob.arrayBuffer();
-    const { ref, durationSeconds } = await registerSample('Recording', arrayBuffer);
+    const { ref, durationSeconds } = await registerSample('Recording', arrayBuffer, 'recorded');
     const project = useProjectStore.getState().project;
     const track = project.tracks.find((t) => t.id === trackId);
     const clip: Clip = {

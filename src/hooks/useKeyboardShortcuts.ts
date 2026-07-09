@@ -83,6 +83,9 @@ export function useKeyboardShortcuts() {
         case '4':
           setBottomPanelTab('sound');
           break;
+        case '5':
+          setBottomPanelTab('library');
+          break;
         case ' ':
           e.preventDefault();
           if (engineIsPlaying()) audioEngine.pause();

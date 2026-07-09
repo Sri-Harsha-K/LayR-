@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { TICKS_PER_BAR } from '../engine/time';
 
-export type BottomPanelTab = 'stepsequencer' | 'pianoroll' | 'mixer' | 'sound';
+export type BottomPanelTab = 'stepsequencer' | 'pianoroll' | 'mixer' | 'sound' | 'library';
 export type MainView = 'timeline' | 'session';
 
 export interface Selection {

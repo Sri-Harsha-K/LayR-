@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { furthestClipEndTicks, pauseHistory, resumeHistory, useProjectStore } from '../../state/projectStore';
+import { furthestClipEndTicks, nextClipName, pauseHistory, resumeHistory, useProjectStore } from '../../state/projectStore';
 import { useUiStore } from '../../state/uiStore';
 import { getTransientState } from '../../state/transient';
 import { audioEngine } from '../../engine/AudioEngine';
 import { sortKeyframes } from '../../engine/automation';
-import { TICKS_PER_BAR, TICKS_PER_BEAT } from '../../engine/time';
+import { TICKS_PER_BAR, TICKS_PER_BEAT, secondsToTicks } from '../../engine/time';
 import { SNAP_OPTIONS, snapNearest, tickToX, xToTick } from '../pianoroll/geometry';
 import { ARRANGEMENT_TOOLBAR_HEIGHT, TRACK_ROW_HEIGHT as ROW_HEIGHT } from '../trackLayout';
+import { generateId } from '../../utils/id';
+import { SAMPLE_DRAG_MIME, type SampleDragPayload } from '../../utils/dragTypes';
 import type { Clip, Track } from '../../state/types';
 
 const DEFAULT_SNAP_INDEX = 2; // 1/4 (one beat) — see SNAP_OPTIONS
@@ -257,6 +259,7 @@ export function ArrangementView() {
   const addDefaultPatternClip = useProjectStore((s) => s.addDefaultPatternClip);
   const updateClip = useProjectStore((s) => s.updateClip);
   const moveClipToTrack = useProjectStore((s) => s.moveClipToTrack);
+  const addClip = useProjectStore((s) => s.addClip);
   const selection = useUiStore((s) => s.selection);
   const selectClip = useUiStore((s) => s.selectClip);
   const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
@@ -355,6 +358,34 @@ export function ArrangementView() {
     e.stopPropagation();
     selectClip(track.id, clip.id);
     setBottomPanelTab('sound');
+  };
+
+  // Library samples only drop onto audio tracks — a drum/synth track's clips
+  // are pattern/MIDI content, not decoded audio, so there's nothing sensible
+  // for a dropped sample to become there (the Library tab's per-lane sample
+  // load path already covers drum lanes).
+  const handleTrackDrop = (e: React.DragEvent, track: Track) => {
+    if (track.kind !== 'audio') return;
+    const raw = e.dataTransfer.getData(SAMPLE_DRAG_MIME);
+    if (!raw) return;
+    e.preventDefault();
+    const payload = JSON.parse(raw) as SampleDragPayload;
+    const rect = tracksAreaRef.current!.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const startTicks = Math.max(0, snapNearest(xToTick(x, pxPerTick), snapTicks));
+    const bpm = useProjectStore.getState().project.bpm;
+    const lengthTicks = Math.max(1, Math.round(secondsToTicks(payload.durationSeconds, bpm)));
+    const clip: Clip = {
+      id: generateId('clip'),
+      startTicks,
+      lengthTicks,
+      name: nextClipName(track, 'audio', payload.name),
+      kind: 'audio',
+      fileRef: payload.ref,
+      bufferOffsetSec: 0,
+      gainDb: 0,
+    };
+    addClip(track.id, clip);
   };
 
   const handleDeleteKeyframe = (track: Track, clip: Clip, index: number) => {
@@ -470,7 +501,15 @@ export function ArrangementView() {
             onPointerCancel={handlePointerUp}
           >
             {tracks.map((t) => (
-              <div key={t.id} className="relative border-b border-hairline" style={{ height: ROW_HEIGHT }}>
+              <div
+                key={t.id}
+                className="relative border-b border-hairline"
+                style={{ height: ROW_HEIGHT }}
+                onDragOver={(e) => {
+                  if (t.kind === 'audio') e.preventDefault();
+                }}
+                onDrop={(e) => handleTrackDrop(e, t)}
+              >
                 {t.clips.map((clip) => (
                   <ClipBlock
                     key={clip.id}

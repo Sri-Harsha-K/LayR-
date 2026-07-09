@@ -9,6 +9,7 @@ import * as transport from './transport';
 import { clampBpm } from './time';
 import { diffProject } from './projectDiff';
 import { audioRecorder } from './recorder';
+import { createDrumVoice } from './instruments/drumKit';
 import {
   getTransientState,
   setMasterMeterLevel,
@@ -187,6 +188,14 @@ class AudioEngine {
     const PREVIEW_DURATION_TICKS = 480; // eighth note at 960 PPQ
     const instrument = this.graph?.synthInstrumentsByTrack.get(trackId);
     instrument?.triggerNote(pitch, PREVIEW_DURATION_TICKS, Tone.now(), velocity);
+  }
+
+  /** Auditions one of the built-in synthesized drum-kit sounds from the Library tab, with no track/lane involved — a throwaway voice straight to the destination, disposed after it's done ringing out. */
+  previewBuiltInDrumSound(laneId: string): void {
+    const voice = createDrumVoice(laneId);
+    voice.output.toDestination();
+    voice.trigger(Tone.now(), 0.9);
+    setTimeout(() => voice.dispose(), 1500);
   }
 
   dispose(): void {

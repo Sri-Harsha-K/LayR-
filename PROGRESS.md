@@ -9,9 +9,9 @@
 - Phase 4 — Recording: done.
 - Phase 5 — Arrangement + persistence + export: done.
 - Phase 6 — Layr-style theme + Sound tab + Capture view: done.
-- **Phase 7 — Session view + scenes engine: done.**
-- Phase 8 (Library tab), Phase 9 (Export dialog + Start screen) — scoped,
-  not yet built. See
+- Phase 7 — Session view + scenes engine: done.
+- **Phase 8 — Library tab: done.**
+- Phase 9 (Export dialog + Start screen) — scoped, not yet built. See
   `C:\Users\leo\.claude\plans\enchanted-squishing-island.md` for the full
   staged plan.
 
@@ -786,6 +786,69 @@ in the linear Timeline.
   does. Consistent with existing behavior, but worth knowing going in.
 - No UI yet for reordering scenes (`reorderScenes` exists in the store,
   unused) — scenes only reorder via removal/recreation today.
+
+## Phase 8 summary
+
+Added the mock's sample-browser screen, scoped to what this offline-first
+app actually has: the user's own recorded takes and imported samples, plus
+the built-in synthesized drum kit as always-available one-shots — not a
+bundled sound-pack (this app ships no copyrighted audio content), per the
+earlier decision.
+
+- **`engine/sampleRegistry.ts`** gained a small metadata sidecar
+  (`SampleMeta`: ref/name/durationSeconds/source) alongside the existing
+  decoded-buffer map, plus a subscribe/notify pair
+  (`subscribeSampleLibrary`/`getSampleLibrary`) — samples can arrive at any
+  time (recording finishes, a drum lane loads a sample, a project opens),
+  not just on mount, so the Library tab needs to react to pushes, not just
+  read once. `registerSample` gained an optional `source: 'recorded' |
+  'imported'` param (default `'imported'`, so existing call sites in
+  `StepSequencer`/`SoundPanel`'s drum-lane loader needed no changes);
+  `recordingController.ts` passes `'recorded'` explicitly.
+  `registerSampleAtRef` (project-load rehydration) also now records
+  metadata, inferring source from the ref's embedded name via a
+  `name.startsWith('Recording')` heuristic — the real source isn't
+  preserved through the ref itself, so this is a best-effort label, not a
+  ground truth.
+- **`AudioEngine.previewBuiltInDrumSound(laneId)`**: a throwaway
+  `createDrumVoice` straight to `Tone.getDestination()`, disposed after
+  1.5s — lets the Library tab audition a kit piece without needing any
+  track to exist, unlike every other preview method in this engine which
+  is always track-scoped.
+- **`components/library/LibraryPanel.tsx`** (new 5th `BottomPanelTab`):
+  category sidebar (All/Recorded/Imported/Kit one-shots) with live counts,
+  a text search, and a flat list. Each real sample row is `draggable`
+  (HTML5 DnD, payload shape in the new `utils/dragTypes.ts` so both this
+  file and `ArrangementView` share one type instead of each guessing the
+  other's JSON shape) and has an "Add" button as a non-drag fallback —
+  both paths create a new audio clip sized from the sample's real decoded
+  duration (`secondsToTicks`), targeting the selected audio track if one
+  exists or creating a fresh audio track otherwise. Built-in kit pieces
+  only get a preview button, no drag/add — they're synthesized, not a
+  decoded buffer, so "add to project" has no meaning for them (loading one
+  onto a drum lane already goes through the existing per-lane picker,
+  unchanged).
+- **`ArrangementView.tsx`** gained the drop side: `onDragOver`/`onDrop` on
+  each track row, but the drop only does anything when `track.kind ===
+  'audio'` — dropping a sample onto a drum/synth track is a no-op, since
+  those tracks' clips are pattern/MIDI content, not decoded audio (the
+  Library tab's per-lane sample-load path already covers drum lanes, and
+  there's no equivalent "load a sample into a synth" concept in this
+  engine).
+
+### Known issues / flags for review (Phase 8)
+
+- Not interactively verified — no browser tool connected this session.
+  Drag-and-drop in particular is worth a real check: HTML5 DnD has
+  historically had cross-browser rough edges this environment can't catch
+  via typecheck/lint/test.
+- No BPM/key auto-match copy (the mock shows "Auto-matched to 124 BPM") —
+  deliberately dropped since it would be dishonest for raw recordings/
+  one-shots that aren't tempo-synced loops.
+- No on-disk folder browsing (the "same, plus a local folder picker"
+  option from the earlier decision point was not chosen) — Library only
+  ever shows samples already registered this session via recording or the
+  existing per-lane sample picker.
 
 ## Volume keyframe automation (post-Phase 5)
 

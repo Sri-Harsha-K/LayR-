@@ -3,12 +3,14 @@ import { StepSequencer } from './stepsequencer/StepSequencer';
 import { PianoRoll } from './pianoroll/PianoRoll';
 import { Mixer } from './mixer/Mixer';
 import { SoundPanel } from './sound/SoundPanel';
+import { LibraryPanel } from './library/LibraryPanel';
 
 const TABS: { id: BottomPanelTab; label: string; key: string }[] = [
   { id: 'stepsequencer', label: 'Step Sequencer', key: '1' },
   { id: 'pianoroll', label: 'Piano Roll', key: '2' },
   { id: 'mixer', label: 'Mixer', key: '3' },
   { id: 'sound', label: 'Sound', key: '4' },
+  { id: 'library', label: 'Library', key: '5' },
 ];
 
 export function BottomDock() {
@@ -41,6 +43,7 @@ export function BottomDock() {
         {activeTab === 'pianoroll' && <PianoRoll />}
         {activeTab === 'mixer' && <Mixer />}
         {activeTab === 'sound' && <SoundPanel />}
+        {activeTab === 'library' && <LibraryPanel />}
       </div>
     </section>
   );
