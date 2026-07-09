@@ -106,6 +106,9 @@ export function useKeyboardShortcuts() {
         case 'Enter':
           audioEngine.returnToZero();
           break;
+        case 'Escape':
+          audioEngine.stop();
+          break;
         case 'r':
         case 'R':
           void toggleRecording();

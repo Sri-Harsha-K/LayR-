@@ -191,6 +191,11 @@ export function TransportBar() {
             </svg>
           )}
         </IconButton>
+        <IconButton label="Stop (Esc)" disabled={!isPoweredOn} onClick={() => audioEngine.stop()}>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" />
+          </svg>
+        </IconButton>
         <IconButton
           label={
             isRecording

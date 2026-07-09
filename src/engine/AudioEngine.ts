@@ -138,6 +138,12 @@ class AudioEngine {
     transport.pause();
   }
 
+  /** Halts playback and resets the playhead to tick 0 — unlike pause() (holds position) or returnToZero() alone (seeks without stopping if already playing), Stop always does both together. */
+  stop(): void {
+    transport.pause();
+    transport.returnToZero();
+  }
+
   returnToZero(): void {
     transport.returnToZero();
   }
