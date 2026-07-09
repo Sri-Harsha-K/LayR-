@@ -3,7 +3,7 @@ import { furthestClipEndTicks, nextClipName, pauseHistory, resumeHistory, usePro
 import { useUiStore } from '../../state/uiStore';
 import { getTransientState } from '../../state/transient';
 import { audioEngine } from '../../engine/AudioEngine';
-import { sortKeyframes } from '../../engine/automation';
+import { sampleVolumeAtTick, sortKeyframes } from '../../engine/automation';
 import { TICKS_PER_BAR, TICKS_PER_BEAT, secondsToTicks } from '../../engine/time';
 import { SNAP_OPTIONS, snapNearest, tickToX, xToTick } from '../pianoroll/geometry';
 import { ARRANGEMENT_TOOLBAR_HEIGHT, TRACK_ROW_HEIGHT as ROW_HEIGHT } from '../trackLayout';
@@ -29,6 +29,30 @@ function clipLabel(clip: Clip): string {
   if (clip.kind === 'pattern') return 'Pattern';
   if (clip.kind === 'midi') return 'MIDI';
   return 'Audio';
+}
+
+const SPLINE_SAMPLE_STEP_PX = 3;
+
+/** Points for the clip's volume-curve overlay. 'linear' draws exact straight segments between keyframes (cheap, exact); 'spline' samples the same Catmull-Rom math the engine actually plays at a fine pixel step, so the drawn curve matches what you hear. */
+function curvePoints(
+  sorted: { ticks: number; value: number }[],
+  curve: 'linear' | 'spline' | undefined,
+  widthPx: number,
+  pxPerTick: number,
+): [number, number][] {
+  if (curve !== 'spline') {
+    return [
+      [0, (1 - sorted[0]!.value) * CLIP_CONTENT_HEIGHT],
+      ...sorted.map((k): [number, number] => [tickToX(k.ticks, pxPerTick), (1 - k.value) * CLIP_CONTENT_HEIGHT]),
+      [widthPx, (1 - sorted[sorted.length - 1]!.value) * CLIP_CONTENT_HEIGHT],
+    ];
+  }
+  const points: [number, number][] = [];
+  for (let x = 0; x <= widthPx; x += SPLINE_SAMPLE_STEP_PX) {
+    const value = sampleVolumeAtTick(sorted, xToTick(x, pxPerTick), 'spline');
+    points.push([x, (1 - value) * CLIP_CONTENT_HEIGHT]);
+  }
+  return points;
 }
 
 type Gesture =
@@ -211,11 +235,7 @@ function ClipBlock({
           height={CLIP_CONTENT_HEIGHT}
         >
           <polyline
-            points={[
-              [0, (1 - sortedForLine[0]!.value) * CLIP_CONTENT_HEIGHT],
-              ...sortedForLine.map((k) => [tickToX(k.ticks, pxPerTick), (1 - k.value) * CLIP_CONTENT_HEIGHT]),
-              [widthPx, (1 - sortedForLine[sortedForLine.length - 1]!.value) * CLIP_CONTENT_HEIGHT],
-            ]
+            points={curvePoints(sortedForLine, clip.volumeCurve, widthPx, pxPerTick)
               .map(([x, y]) => `${x},${y}`)
               .join(' ')}
             fill="none"

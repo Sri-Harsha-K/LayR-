@@ -6,7 +6,7 @@
 // touches Tone.setContext itself).
 import * as Tone from 'tone';
 import type { Clip, Project, Track, VolumeKeyframe } from '../state/types';
-import { sampleVolumeAtTick, sortKeyframes } from './automation';
+import { sampleVolumeAtTick, sortKeyframes, type VolumeCurve } from './automation';
 import { buildEffectChain } from './effects';
 import { createDrumVoice, createSampleDrumVoice, type DrumVoice } from './instruments/drumKit';
 import { createSynthInstrument, type SynthInstrument } from './instruments/synthFactory';
@@ -54,7 +54,7 @@ export function buildPatternEvents(clip: Extract<Clip, { kind: 'pattern' }>): Pa
       events.push({
         time: ticksToToneTime(offset),
         laneId: lane.laneId,
-        velocity: step.velocity * sampleVolumeAtTick(clip.volumeKeyframes, offset),
+        velocity: step.velocity * sampleVolumeAtTick(clip.volumeKeyframes, offset, clip.volumeCurve),
       });
     });
   }
@@ -74,7 +74,7 @@ export function buildMidiEvents(clip: Extract<Clip, { kind: 'midi' }>): MidiNote
     time: ticksToToneTime(n.startTicks),
     pitch: n.pitch,
     durationTicks: n.durationTicks,
-    velocity: n.velocity * sampleVolumeAtTick(clip.volumeKeyframes, n.startTicks),
+    velocity: n.velocity * sampleVolumeAtTick(clip.volumeKeyframes, n.startTicks, clip.volumeCurve),
   }));
 }
 
@@ -152,6 +152,14 @@ function buildDrumTrack(
   return laneVoices;
 }
 
+// Web Audio's AudioParam has no native spline-ramp method — a 'spline'
+// curve is approximated by sampling sampleVolumeAtTick (the exact same
+// curve math used everywhere else) at this many short linear ramps per
+// keyframe segment, reusing linearRampToValueAtTime for each sub-step. Low
+// enough to be cheap, high enough that the ramp's steps aren't audible as
+// zipper noise.
+const SPLINE_SUBDIVISIONS_PER_SEGMENT = 8;
+
 // Schedules a clip's volume-keyframe curve onto a live Gain param as
 // absolute-tick automation events (Tone.Param.setValueAtTime/
 // linearRampToValueAtTime resolve "Xi" tick notation against the Transport's
@@ -167,14 +175,28 @@ function scheduleVolumeAutomation(
   keyframes: VolumeKeyframe[] | undefined,
   clipStartTicks: number,
   clipLengthTicks: number,
+  curve: VolumeCurve = 'linear',
 ): void {
   if (!keyframes || keyframes.length === 0) return;
   const sorted = sortKeyframes(keyframes);
   const atClipTick = (ticks: number) => ticksToToneTime(clipStartTicks + ticks);
   gainParam.setValueAtTime(sorted[0]!.value, atClipTick(0));
-  for (const kf of sorted) {
-    gainParam.linearRampToValueAtTime(kf.value, atClipTick(kf.ticks));
+
+  if (curve === 'spline') {
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i]!;
+      const b = sorted[i + 1]!;
+      for (let step = 1; step <= SPLINE_SUBDIVISIONS_PER_SEGMENT; step++) {
+        const ticks = a.ticks + ((b.ticks - a.ticks) * step) / SPLINE_SUBDIVISIONS_PER_SEGMENT;
+        gainParam.linearRampToValueAtTime(sampleVolumeAtTick(sorted, ticks, curve), atClipTick(ticks));
+      }
+    }
+  } else {
+    for (const kf of sorted) {
+      gainParam.linearRampToValueAtTime(kf.value, atClipTick(kf.ticks));
+    }
   }
+
   gainParam.setValueAtTime(sorted[sorted.length - 1]!.value, atClipTick(clipLengthTicks));
 }
 
@@ -185,7 +207,7 @@ function buildAudioTrack(track: Track, trackInput: Tone.Gain, disposables: Dispo
     const player = new Tone.Player(getSampleBuffer(clip.fileRef)!);
     player.volume.value = clip.gainDb;
     const clipGain = new Tone.Gain(1);
-    scheduleVolumeAutomation(clipGain.gain, clip.volumeKeyframes, clip.startTicks, clip.lengthTicks);
+    scheduleVolumeAutomation(clipGain.gain, clip.volumeKeyframes, clip.startTicks, clip.lengthTicks, clip.volumeCurve);
     player.connect(clipGain);
     clipGain.connect(trackInput);
     disposables.push(player, clipGain);

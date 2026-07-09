@@ -75,6 +75,8 @@ export interface ClipBase {
   /** User-facing label, editable from the Sound tab. Undefined falls back to a kind-based label (see clipLabel in ArrangementView). */
   name?: string;
   volumeKeyframes?: VolumeKeyframe[];
+  /** How volumeKeyframes interpolate between points. Undefined = 'linear' (see engine/automation.ts). */
+  volumeCurve?: 'linear' | 'spline';
   /** Session-view row this clip belongs to. Undefined = Timeline-only, not shown in the Session grid. */
   sceneId?: string;
 }

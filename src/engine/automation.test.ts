@@ -51,4 +51,48 @@ describe('sampleVolumeAtTick', () => {
     expect(sampleVolumeAtTick([{ ticks: 400, value: 0.6 }], 0)).toBe(0.6);
     expect(sampleVolumeAtTick([{ ticks: 400, value: 0.6 }], 9999)).toBe(0.6);
   });
+
+  describe('spline curve', () => {
+    it('still passes exactly through every keyframe', () => {
+      const kfs = [
+        { ticks: 0, value: 0.2 },
+        { ticks: 480, value: 1 },
+        { ticks: 960, value: 0.5 },
+      ];
+      expect(sampleVolumeAtTick(kfs, 0, 'spline')).toBeCloseTo(0.2);
+      expect(sampleVolumeAtTick(kfs, 480, 'spline')).toBeCloseTo(1);
+      expect(sampleVolumeAtTick(kfs, 960, 'spline')).toBeCloseTo(0.5);
+    });
+
+    it('stays clamped to 0..1 even where Catmull-Rom would overshoot', () => {
+      const kfs = [
+        { ticks: 0, value: 0 },
+        { ticks: 240, value: 0.95 },
+        { ticks: 480, value: 1 },
+        { ticks: 720, value: 0.05 },
+        { ticks: 960, value: 0 },
+      ];
+      for (let t = 0; t <= 960; t += 30) {
+        const v = sampleVolumeAtTick(kfs, t, 'spline');
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it('matches linear on a straight two-keyframe run (no curvature to differ)', () => {
+      const kfs = [{ ticks: 0, value: 0 }, { ticks: 960, value: 1 }];
+      expect(sampleVolumeAtTick(kfs, 480, 'spline')).toBeCloseTo(sampleVolumeAtTick(kfs, 480, 'linear'));
+    });
+
+    it('produces a different midpoint than linear once there are 3+ keyframes shaping the curve', () => {
+      const kfs = [
+        { ticks: 0, value: 0 },
+        { ticks: 480, value: 1 },
+        { ticks: 960, value: 0 },
+      ];
+      const linearMid = sampleVolumeAtTick(kfs, 240, 'linear');
+      const splineMid = sampleVolumeAtTick(kfs, 240, 'spline');
+      expect(splineMid).not.toBeCloseTo(linearMid, 1);
+    });
+  });
 });

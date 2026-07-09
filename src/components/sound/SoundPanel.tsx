@@ -154,6 +154,30 @@ export function SoundPanel() {
             />
           </label>
         )}
+        {clip && (clip.volumeKeyframes?.length ?? 0) > 0 && (
+          <div className="flex items-center gap-2 text-xs text-ink-dim">
+            <span>Volume curve</span>
+            <div className="flex gap-1">
+              {(['linear', 'spline'] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => updateClip(track.id, clip.id, { volumeCurve: c })}
+                  aria-pressed={(clip.volumeCurve ?? 'linear') === c}
+                  title={c === 'spline' ? 'Smooth curve through every point' : 'Straight lines between points'}
+                  className={[
+                    'rounded border px-2 py-1 capitalize',
+                    (clip.volumeCurve ?? 'linear') === c
+                      ? 'border-accent bg-accent/20 text-accent'
+                      : 'border-hairline text-ink-dim hover:text-ink',
+                  ].join(' ')}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {track.kind === 'synth' && track.instrument && (
           <SynthInstrumentEditor trackId={track.id} instrument={track.instrument} />
         )}

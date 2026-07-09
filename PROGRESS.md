@@ -1098,3 +1098,52 @@ Not interactively verified — no browser tool connected this session — but
 the root cause (documented, well-known pointer-capture/click-retargeting
 interaction) and fix are both high-confidence; worth a real click-through
 before trusting it fully.
+
+## Spline volume curves (post-Phase 9)
+
+Volume keyframes only ever interpolated linearly; added 'spline' as a
+per-clip alternative (`ClipBase.volumeCurve?: 'linear' | 'spline'`,
+undefined = 'linear', so existing saved projects need no migration).
+
+- **`engine/automation.ts`**: a uniform Catmull-Rom spline through every
+  keyframe (`sampleSpline`) — chosen specifically because it passes exactly
+  through each point with no explicit tangent handles to design UI for,
+  unlike a bezier curve. Ends are clamped (a synthetic neighbor at the same
+  value as the nearest real keyframe, not linearly extrapolated) to avoid
+  the wild overshoot a naive extrapolated Catmull-Rom produces right at a
+  clip's first/last point; the result is still clamped to 0..1 on top of
+  that, since interior segments can still overshoot slightly past their
+  control points (a real property of this spline, not a bug) and this is a
+  gain multiplier, not an unbounded curve. `sampleVolumeAtTick` takes the
+  curve type as a third param, defaulting to `'linear'`.
+- **`graph.ts`**: pattern/MIDI clips (no per-clip node, velocity-scaled per
+  discrete trigger) just pass `clip.volumeCurve` straight through to
+  `sampleVolumeAtTick` — trivial, since they were already sampling the
+  curve at arbitrary points. Audio clips (real continuous automation on a
+  live `Gain` node) needed more: Web Audio's `AudioParam` has no native
+  spline-ramp method, so `scheduleVolumeAutomation` approximates a spline
+  curve with `SPLINE_SUBDIVISIONS_PER_SEGMENT` (8) short
+  `linearRampToValueAtTime` calls per segment, each sampled from the exact
+  same `sampleVolumeAtTick` function everything else uses — one curve
+  definition, three different consumers (pattern/MIDI sampling, audio
+  ramp-approximation, and the UI's drawn curve below), never three separate
+  implementations of "what does spline mean here."
+- **`components/sound/SoundPanel.tsx`**: a Linear/Spline toggle, shown only
+  once a clip actually has at least one keyframe (the toggle is inert
+  otherwise, so hiding it avoids a control with no visible effect yet).
+- **`ArrangementView.tsx`**: the clip-bar overlay's drawn curve now branches
+  on `clip.volumeCurve` — linear keeps the original exact straight-segment
+  polyline (cheap, pixel-exact at each keyframe); spline instead samples
+  `sampleVolumeAtTick(..., 'spline')` every 3px across the clip's width and
+  draws that as the polyline, so the visual curve matches what's actually
+  scheduled rather than being a separate approximation of it.
+- New automation.test.ts cases confirm the spline still passes exactly
+  through every keyframe, stays clamped to 0..1 against a curve shaped to
+  overshoot, matches linear exactly on a straight 2-point run (no curvature
+  to differ), and genuinely differs from linear once a middle keyframe
+  gives it something to curve around.
+- Not interactively verified (no browser tool connected) — the math is
+  unit-tested and the approximation strategy (sample the same function,
+  many short linear ramps) is low-risk, but actually hearing an audio
+  clip's spline-curve fade and seeing the drawn curve match it has not been
+  checked by a human or visual agent yet.
