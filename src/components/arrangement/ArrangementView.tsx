@@ -163,7 +163,6 @@ function ClipBlock({
   onPointerDownMove,
   onPointerDownResize,
   onPointerDownKeyframe,
-  onDoubleClick,
   onDeleteKeyframe,
   onContextMenu,
 }: {
@@ -174,7 +173,6 @@ function ClipBlock({
   onPointerDownMove: (e: React.PointerEvent, track: Track, clip: Clip) => void;
   onPointerDownResize: (e: React.PointerEvent, track: Track, clip: Clip) => void;
   onPointerDownKeyframe: (e: React.PointerEvent, track: Track, clip: Clip, index: number) => void;
-  onDoubleClick: (e: React.MouseEvent, track: Track, clip: Clip) => void;
   onDeleteKeyframe: (track: Track, clip: Clip, index: number) => void;
   onContextMenu: (e: React.MouseEvent, track: Track, clip: Clip) => void;
 }) {
@@ -191,7 +189,6 @@ function ClipBlock({
   return (
     <div
       onPointerDown={(e) => onPointerDownMove(e, track, clip)}
-      onDoubleClick={(e) => onDoubleClick(e, track, clip)}
       onContextMenu={(e) => onContextMenu(e, track, clip)}
       className={[
         'absolute top-1 bottom-1 flex cursor-grab touch-none items-center justify-start overflow-hidden rounded px-2 text-left text-xs active:cursor-grabbing',
@@ -273,6 +270,16 @@ export function ArrangementView() {
 
   const tracksAreaRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
+  // Native dblclick can't be used here: setPointerCapture on tracksAreaRef
+  // (below) retargets the browser's derived click/dblclick events to the
+  // capturing element too, so a clip's own onDoubleClick handler never
+  // fires once a gesture has captured the pointer once. Detected manually
+  // instead, off the same pointerdown stream everything else already goes
+  // through — same "one pointer-event model" convention this file already
+  // uses for move/resize/automation.
+  const lastClipPointerDown = useRef<{ clipId: string; time: number; x: number; y: number } | null>(null);
+  const DOUBLE_CLICK_MS = 400;
+  const DOUBLE_CLICK_SLOP_PX = 6;
 
   const pxPerTick = pxPerBeat / TICKS_PER_BEAT;
   const snapTicks = SNAP_OPTIONS[snapIndex]!.ticks;
@@ -288,13 +295,45 @@ export function ArrangementView() {
     setBottomPanelTab(clip.kind === 'pattern' ? 'stepsequencer' : clip.kind === 'midi' ? 'pianoroll' : 'mixer');
   };
 
+  const addVolumeKeyframeAt = (track: Track, clip: Clip, clientX: number, clientY: number) => {
+    const rect = tracksAreaRef.current!.getBoundingClientRect();
+    const trackIndex = tracks.indexOf(track);
+    const x = clientX - rect.left;
+    const y = clientY - rect.top - trackIndex * ROW_HEIGHT - CLIP_VPAD;
+    const ticks = Math.max(
+      0,
+      Math.min(clip.lengthTicks, snapNearest(xToTick(x, pxPerTick) - clip.startTicks, snapTicks)),
+    );
+    const value = valueFromLocalY(y);
+    updateClip(track.id, clip.id, { volumeKeyframes: [...(clip.volumeKeyframes ?? []), { ticks, value }] });
+  };
+
   const handleClipPointerDownMove = (e: React.PointerEvent, track: Track, clip: Clip) => {
     e.stopPropagation();
+
+    const rect = tracksAreaRef.current!.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const last = lastClipPointerDown.current;
+    const isDoubleClick =
+      !!last &&
+      last.clipId === clip.id &&
+      e.timeStamp - last.time < DOUBLE_CLICK_MS &&
+      Math.abs(x - last.x) < DOUBLE_CLICK_SLOP_PX &&
+      Math.abs(y - last.y) < DOUBLE_CLICK_SLOP_PX;
+    // Consume on recognition so a third rapid click starts a fresh pair
+    // rather than adding a keyframe on every click after the second.
+    lastClipPointerDown.current = isDoubleClick ? null : { clipId: clip.id, time: e.timeStamp, x, y };
+
+    if (isDoubleClick) {
+      selectAndFocus(track, clip);
+      addVolumeKeyframeAt(track, clip, e.clientX, e.clientY);
+      return;
+    }
+
     tracksAreaRef.current!.setPointerCapture(e.pointerId);
     pauseHistory();
     selectAndFocus(track, clip);
-    const rect = tracksAreaRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left;
     gesture.current = {
       mode: 'move',
       clipId: clip.id,
@@ -318,20 +357,6 @@ export function ArrangementView() {
     pauseHistory();
     selectAndFocus(track, clip);
     gesture.current = { mode: 'automation', clipId: clip.id, trackId: track.id, kfIndex: index };
-  };
-
-  const handleClipDoubleClick = (e: React.MouseEvent, track: Track, clip: Clip) => {
-    e.stopPropagation();
-    const rect = tracksAreaRef.current!.getBoundingClientRect();
-    const trackIndex = tracks.indexOf(track);
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top - trackIndex * ROW_HEIGHT - CLIP_VPAD;
-    const ticks = Math.max(
-      0,
-      Math.min(clip.lengthTicks, snapNearest(xToTick(x, pxPerTick) - clip.startTicks, snapTicks)),
-    );
-    const value = valueFromLocalY(y);
-    updateClip(track.id, clip.id, { volumeKeyframes: [...(clip.volumeKeyframes ?? []), { ticks, value }] });
   };
 
   const handleClipContextMenu = (e: React.MouseEvent, track: Track, clip: Clip) => {
@@ -501,7 +526,6 @@ export function ArrangementView() {
                     onPointerDownMove={handleClipPointerDownMove}
                     onPointerDownResize={handleClipPointerDownResize}
                     onPointerDownKeyframe={handleClipPointerDownKeyframe}
-                    onDoubleClick={handleClipDoubleClick}
                     onDeleteKeyframe={handleDeleteKeyframe}
                     onContextMenu={handleClipContextMenu}
                   />

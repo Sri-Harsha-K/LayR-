@@ -1068,3 +1068,33 @@ real bugs, not one:
   tool connected this session. `zipReader.ts`'s round-trip test is the
   strongest available confidence without one; the actual download-then-
   reopen flow in a live browser is the most important remaining check.
+
+## Fixed: double-click-to-add-volume-keyframe never fired (post-Phase 9)
+
+A user reported never seeing volume keyframes appear on clip bars no
+matter how they double-clicked. Root cause: `handleClipPointerDownMove`
+calls `tracksAreaRef.current!.setPointerCapture(e.pointerId)` on every
+single pointerdown on a clip (needed for the move-drag gesture) — but
+pointer capture also retargets the browser's *derived* `click`/`dblclick`
+mouse-compat events to the capturing element, not just raw pointer events.
+Once a clip had been clicked once, the native `dblclick` event's target
+became `tracksAreaRef` (which has no `onDoubleClick` handler), never the
+individual `ClipBlock` div whose `onDoubleClick` prop was wired to add the
+keyframe — so it silently never fired, on any browser, since the very
+first Phase 5 build of this feature.
+
+Fixed by dropping reliance on native `dblclick` entirely: a new
+`lastClipPointerDown` ref tracks the clip id / timestamp / position of the
+last pointerdown, and `handleClipPointerDownMove` checks for a same-clip,
+same-position (within 6px), same-timestamp-window (400ms) second
+pointerdown *before* deciding whether to start a move-drag gesture — same
+"one pointer-event model on a container" convention this file already
+uses for move/resize/automation, just extended to double-click detection
+too. `ClipBlock`'s `onDoubleClick` prop and the old `handleClipDoubleClick`
+were removed entirely (dead code now that every click is intercepted
+earlier in the same handler).
+
+Not interactively verified — no browser tool connected this session — but
+the root cause (documented, well-known pointer-capture/click-retargeting
+interaction) and fix are both high-confidence; worth a real click-through
+before trusting it fully.
