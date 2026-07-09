@@ -2,11 +2,13 @@ import { useUiStore, type BottomPanelTab } from '../state/uiStore';
 import { StepSequencer } from './stepsequencer/StepSequencer';
 import { PianoRoll } from './pianoroll/PianoRoll';
 import { Mixer } from './mixer/Mixer';
+import { SoundPanel } from './sound/SoundPanel';
 
 const TABS: { id: BottomPanelTab; label: string; key: string }[] = [
   { id: 'stepsequencer', label: 'Step Sequencer', key: '1' },
   { id: 'pianoroll', label: 'Piano Roll', key: '2' },
   { id: 'mixer', label: 'Mixer', key: '3' },
+  { id: 'sound', label: 'Sound', key: '4' },
 ];
 
 export function BottomDock() {
@@ -23,9 +25,9 @@ export function BottomDock() {
             onClick={() => setTab(tab.id)}
             aria-pressed={activeTab === tab.id}
             className={[
-              'rounded-t-md px-3 py-1.5 text-sm transition-colors',
+              'label-mono rounded-t-md px-3 py-2 transition-colors',
               activeTab === tab.id
-                ? 'bg-surface-2 text-ink border border-hairline border-b-surface-2'
+                ? 'bg-surface-2 text-accent border border-hairline border-b-surface-2'
                 : 'text-ink-dim hover:text-ink',
             ].join(' ')}
           >
@@ -38,6 +40,7 @@ export function BottomDock() {
         {activeTab === 'stepsequencer' && <StepSequencer />}
         {activeTab === 'pianoroll' && <PianoRoll />}
         {activeTab === 'mixer' && <Mixer />}
+        {activeTab === 'sound' && <SoundPanel />}
       </div>
     </section>
   );

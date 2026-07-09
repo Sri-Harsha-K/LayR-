@@ -11,6 +11,8 @@ export interface TransientState {
   /** trackId -> peak level in [0,1], updated every meter frame */
   meterLevels: Record<string, number>;
   masterMeterLevel: number;
+  /** Live mic input waveform samples for CaptureView's canvas draw, null while not recording. */
+  recordingWaveform: Float32Array | null;
 }
 
 const state: TransientState = {
@@ -19,6 +21,7 @@ const state: TransientState = {
   isRecording: false,
   meterLevels: {},
   masterMeterLevel: 0,
+  recordingWaveform: null,
 };
 
 export function getTransientState(): Readonly<TransientState> {
@@ -44,4 +47,8 @@ export function clearMeterLevel(trackId: string): void {
 
 export function setMasterMeterLevel(level: number): void {
   state.masterMeterLevel = level;
+}
+
+export function setRecordingWaveform(data: Float32Array | null): void {
+  state.recordingWaveform = data;
 }

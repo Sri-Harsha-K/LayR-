@@ -107,7 +107,7 @@ export function StepSequencer() {
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-center gap-4">
-        <label className="flex items-center gap-2 text-xs text-ink-dim">
+        <label className="label-mono flex items-center gap-2 text-ink-dim">
           Swing
           <input
             type="range"

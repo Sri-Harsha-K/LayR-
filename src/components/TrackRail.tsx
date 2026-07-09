@@ -23,6 +23,7 @@ function TrackHeaderRow({
   const selection = useUiStore((s) => s.selection);
   const selectTrack = useUiStore((s) => s.selectTrack);
   const selectClip = useUiStore((s) => s.selectClip);
+  const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
 
   const isSelected = selection.trackId === track.id;
 
@@ -32,12 +33,20 @@ function TrackHeaderRow({
     if (isSelected) selectClip(undefined, undefined);
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    selectClip(track.id, undefined);
+    setBottomPanelTab('sound');
+  };
+
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={() => selectTrack(track.id)}
       onKeyDown={(e) => e.key === 'Enter' && selectTrack(track.id)}
+      onContextMenu={handleContextMenu}
+      title="Right-click for instrument & effects"
       className={[
         'flex shrink-0 items-center gap-2 border-b border-hairline px-2 text-left',
         isSelected ? 'bg-surface-2' : 'hover:bg-surface-1',
@@ -201,7 +210,7 @@ export function TrackRail() {
         <button
           type="button"
           onClick={handleAddSynthTrack}
-          className="flex-1 rounded-md border border-dashed border-hairline px-2 py-1.5 text-xs text-ink-dim hover:border-track-4 hover:text-track-4"
+          className="flex-1 rounded-md border border-dashed border-hairline px-2 py-1.5 text-xs text-ink-dim hover:border-accent hover:text-accent"
         >
           + Synth
         </button>

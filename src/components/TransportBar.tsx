@@ -7,6 +7,7 @@ import { toggleRecording } from '../engine/recordingController';
 import { openProject, saveProject, saveProjectAs } from '../engine/projectIO';
 import { bounceProject } from '../engine/render';
 import { getTransientState } from '../state/transient';
+import { useIsRecording } from '../hooks/useIsRecording';
 import { TimeDisplay } from './TimeDisplay';
 
 const MASTER_METER_SEGMENTS = 16;
@@ -41,7 +42,7 @@ function IconButton({
             ? 'border-record bg-record text-surface-0'
             : 'border-hairline text-record hover:border-record'
           : active
-            ? 'border-track-4 bg-track-4/20 text-track-4'
+            ? 'border-accent bg-accent/20 text-accent'
             : 'border-hairline text-ink-dim hover:text-ink hover:border-ink-faint',
       ].join(' ')}
     >
@@ -141,7 +142,7 @@ export function TransportBar() {
   const project = useProjectStore((s) => s.project);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isRecording, setIsRecordingUi] = useState(false);
+  const isRecording = useIsRecording();
   const [isBouncing, setIsBouncing] = useState(false);
 
   const handleBounce = async () => {
@@ -155,20 +156,6 @@ export function TransportBar() {
   };
 
   useEffect(() => subscribeTransportState((event) => setIsPlaying(event === 'started')), []);
-
-  // isRecording has no event to subscribe to (unlike transport start/stop),
-  // so it's polled the same way meters are — React bails out of re-rendering
-  // when the value hasn't actually changed, so this doesn't cost a re-render
-  // per frame in practice.
-  useEffect(() => {
-    let raf: number;
-    const loop = () => {
-      setIsRecordingUi(getTransientState().isRecording);
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
 
   const togglePlay = () => {
     if (isPlaying) audioEngine.pause();
@@ -238,7 +225,7 @@ export function TransportBar() {
       </div>
 
       <div className="flex items-center gap-6">
-        <label className="flex items-center gap-2 text-sm text-ink-dim">
+        <label className="label-mono flex items-center gap-2 text-ink-dim">
           BPM
           <input
             type="number"

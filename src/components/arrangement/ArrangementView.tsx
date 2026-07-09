@@ -22,6 +22,7 @@ function valueFromLocalY(y: number): number {
 }
 
 function clipLabel(clip: Clip): string {
+  if (clip.name) return clip.name;
   if (clip.kind === 'pattern') return 'Pattern';
   if (clip.kind === 'midi') return 'MIDI';
   return 'Audio';
@@ -111,7 +112,7 @@ function Ruler({
     >
       {loopEnabled && (
         <div
-          className="pointer-events-none absolute inset-y-0 bg-track-4/25"
+          className="pointer-events-none absolute inset-y-0 bg-accent/25"
           style={{
             left: loopStartTicks * pxPerTick,
             width: Math.max(2, (loopEndTicks - loopStartTicks) * pxPerTick),
@@ -161,6 +162,7 @@ function ClipBlock({
   onPointerDownKeyframe,
   onDoubleClick,
   onDeleteKeyframe,
+  onContextMenu,
 }: {
   track: Track;
   clip: Clip;
@@ -171,6 +173,7 @@ function ClipBlock({
   onPointerDownKeyframe: (e: React.PointerEvent, track: Track, clip: Clip, index: number) => void;
   onDoubleClick: (e: React.MouseEvent, track: Track, clip: Clip) => void;
   onDeleteKeyframe: (track: Track, clip: Clip, index: number) => void;
+  onContextMenu: (e: React.MouseEvent, track: Track, clip: Clip) => void;
 }) {
   const widthPx = Math.max(24, tickToX(clip.lengthTicks, pxPerTick));
   // Dots are rendered/indexed in the clip's own (insertion) order, not
@@ -186,9 +189,10 @@ function ClipBlock({
     <div
       onPointerDown={(e) => onPointerDownMove(e, track, clip)}
       onDoubleClick={(e) => onDoubleClick(e, track, clip)}
+      onContextMenu={(e) => onContextMenu(e, track, clip)}
       className={[
         'absolute top-1 bottom-1 flex cursor-grab touch-none items-center justify-start overflow-hidden rounded px-2 text-left text-xs active:cursor-grabbing',
-        isSelected ? 'ring-2 ring-track-4' : '',
+        isSelected ? 'ring-2 ring-accent' : '',
       ].join(' ')}
       style={{
         left: tickToX(clip.startTicks, pxPerTick),
@@ -197,7 +201,7 @@ function ClipBlock({
         borderLeft: `2px solid ${track.color}`,
         color: 'var(--color-ink)',
       }}
-      title={`${clipLabel(clip)} clip — drag to move (drop on a same-kind track to retarget), right edge to resize, double-click to add a volume point`}
+      title={`${clipLabel(clip)} clip — drag to move (drop on a same-kind track to retarget), right edge to resize, double-click to add a volume point, right-click for instrument & effects`}
     >
       {clipLabel(clip)}
       {sortedForLine.length > 0 && (
@@ -346,6 +350,13 @@ export function ArrangementView() {
     updateClip(track.id, clip.id, { volumeKeyframes: [...(clip.volumeKeyframes ?? []), { ticks, value }] });
   };
 
+  const handleClipContextMenu = (e: React.MouseEvent, track: Track, clip: Clip) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectClip(track.id, clip.id);
+    setBottomPanelTab('sound');
+  };
+
   const handleDeleteKeyframe = (track: Track, clip: Clip, index: number) => {
     updateClip(track.id, clip.id, {
       volumeKeyframes: (clip.volumeKeyframes ?? []).filter((_, i) => i !== index),
@@ -402,7 +413,7 @@ export function ArrangementView() {
         className="flex items-center gap-3 border-b border-hairline bg-surface-1 px-3 text-xs text-ink-dim"
         style={{ height: ARRANGEMENT_TOOLBAR_HEIGHT }}
       >
-        <label className="flex items-center gap-1">
+        <label className="label-mono flex items-center gap-1 text-ink-faint">
           Snap
           <select
             value={snapIndex}
@@ -418,7 +429,8 @@ export function ArrangementView() {
         </label>
         <span className="text-ink-faint">
           Drag a clip to move · right edge to resize · Delete to remove · Ctrl/Cmd+D to duplicate · X to split at
-          playhead · double-click a clip for a volume point, drag a point to adjust, right-click to delete
+          playhead · double-click a clip for a volume point, drag a point to adjust, right-click a point to delete ·
+          right-click a clip for instrument &amp; effects
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
@@ -428,7 +440,7 @@ export function ArrangementView() {
           >
             -
           </button>
-          <span>Zoom</span>
+          <span className="label-mono text-ink-faint">Zoom</span>
           <button
             type="button"
             onClick={() => setPxPerBeat(pxPerBeat + 8)}
@@ -471,6 +483,7 @@ export function ArrangementView() {
                     onPointerDownKeyframe={handleClipPointerDownKeyframe}
                     onDoubleClick={handleClipDoubleClick}
                     onDeleteKeyframe={handleDeleteKeyframe}
+                    onContextMenu={handleClipContextMenu}
                   />
                 ))}
               </div>

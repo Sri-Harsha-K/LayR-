@@ -101,7 +101,7 @@ export function EffectsRack({ effects, onAdd, onRemove, onReorder, onUpdate }: E
                     step={field.step}
                     value={value}
                     onChange={(e) => onUpdate(fx.id, { params: { ...fx.params, [field.key]: Number(e.target.value) } })}
-                    className="w-16 accent-track-4"
+                    className="w-16 accent-accent"
                   />
                   <span className="tabular w-10 text-right">
                     {value}
@@ -117,7 +117,7 @@ export function EffectsRack({ effects, onAdd, onRemove, onReorder, onUpdate }: E
       <select
         value={pendingType}
         onChange={(e) => handleAdd(e.target.value as EffectType)}
-        className="rounded border border-dashed border-hairline bg-transparent px-1.5 py-1 text-xs text-ink-dim hover:border-track-4 hover:text-track-4"
+        className="rounded border border-dashed border-hairline bg-transparent px-1.5 py-1 text-xs text-ink-dim hover:border-accent hover:text-accent"
       >
         <option value="" disabled>
           + Add effect

@@ -65,6 +65,8 @@ export interface ClipBase {
   id: string;
   startTicks: number;
   lengthTicks: number;
+  /** User-facing label, editable from the Sound tab. Undefined falls back to a kind-based label (see clipLabel in ArrangementView). */
+  name?: string;
   volumeKeyframes?: VolumeKeyframe[];
 }
 

@@ -1,26 +1,32 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Deep neutral charcoal surfaces, not pure black. */
-  --color-surface-0: #171513;
-  --color-surface-1: #1f1c19;
-  --color-surface-2: #28241f;
-  --color-surface-3: #332e27;
-  --color-hairline: #46403756;
+  /* Near-black surfaces with a faint warm-green undertone, not pure black. */
+  --color-surface-0: #0c0c0a;
+  --color-surface-1: #131311;
+  --color-surface-2: #1a1a17;
+  --color-surface-3: #24241f;
+  --color-hairline: #3a3a3456;
 
-  --color-ink: #ede6da;
-  --color-ink-dim: #a89e8e;
-  --color-ink-faint: #6f6759;
+  --color-ink: #ede9dd;
+  --color-ink-dim: #928d80;
+  --color-ink-faint: #5c584d;
+
+  /* Lime UI accent — distinct from the 8 track colors below. Used for the
+     play button, active/selected states, focus rings, and the playing-scene
+     highlight; never used as a track's own color. */
+  --color-accent: #c8f31d;
+  --color-accent-dim: #8fae1f;
 
   /* Fixed 8-color track palette (mirrors src/state/types.ts TRACK_COLORS) */
-  --color-track-1: #e0654f;
-  --color-track-2: #d9a441;
-  --color-track-3: #7fa876;
+  --color-track-1: #e08a4f;
+  --color-track-2: #b98fd9;
+  --color-track-3: #5fbfa0;
   --color-track-4: #4f9bd9;
-  --color-track-5: #a879c9;
-  --color-track-6: #5fb8a8;
-  --color-track-7: #c96f9e;
-  --color-track-8: #8f8f6f;
+  --color-track-5: #d97fa0;
+  --color-track-6: #d9c34f;
+  --color-track-7: #7f9fd9;
+  --color-track-8: #9a9a7f;
 
   /* Metering: amber/green, red reserved for record/arm only. */
   --color-meter-green: #7fbf6a;
@@ -56,8 +62,16 @@ body {
   font-feature-settings: 'tnum' 1;
 }
 
+/* Uppercase mono section labels, e.g. "02 · MAIN VIEW" in the mock. */
+.label-mono {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.6875rem;
+}
+
 :focus-visible {
-  outline: 2px solid var(--color-track-4);
+  outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
 

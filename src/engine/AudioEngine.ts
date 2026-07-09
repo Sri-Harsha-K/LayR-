@@ -9,7 +9,14 @@ import * as transport from './transport';
 import { clampBpm } from './time';
 import { diffProject } from './projectDiff';
 import { audioRecorder } from './recorder';
-import { getTransientState, setMasterMeterLevel, setMeterLevel, setPlayhead, setTransportFlags } from '../state/transient';
+import {
+  getTransientState,
+  setMasterMeterLevel,
+  setMeterLevel,
+  setPlayhead,
+  setRecordingWaveform,
+  setTransportFlags,
+} from '../state/transient';
 
 /** Tone.Meter reports dBFS (-Infinity..0); the mixer just wants a 0..1 bar height. */
 function dbToUnit(db: number): number {
@@ -43,6 +50,7 @@ class AudioEngine {
         });
         setMasterMeterLevel(dbToUnit(this.graph.masterMeter.getValue() as number));
       }
+      setRecordingWaveform(audioRecorder.isRecording ? audioRecorder.getWaveform() : null);
       this.rafId = requestAnimationFrame(tick);
     };
     this.rafId = requestAnimationFrame(tick);

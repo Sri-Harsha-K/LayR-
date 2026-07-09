@@ -80,6 +80,9 @@ export function useKeyboardShortcuts() {
         case '3':
           setBottomPanelTab('mixer');
           break;
+        case '4':
+          setBottomPanelTab('sound');
+          break;
         case ' ':
           e.preventDefault();
           if (engineIsPlaying()) audioEngine.pause();

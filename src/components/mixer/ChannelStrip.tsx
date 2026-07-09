@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { getTransientState } from '../../state/transient';
+import { useUiStore } from '../../state/uiStore';
 import { MiniToggle } from '../MiniToggle';
 import type { EffectInstance } from '../../state/types';
 import { EffectsRack } from './EffectsRack';
+import { EFFECT_LABELS } from './effectFields';
 
 interface ChannelStripProps {
   trackId?: string; // omitted for the master strip
@@ -42,6 +44,13 @@ export function ChannelStrip({
   onUpdateEffect,
 }: ChannelStripProps) {
   const meterFillRef = useRef<HTMLDivElement>(null);
+  const selectTrack = useUiStore((s) => s.selectTrack);
+  const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
+  const openSoundTab = () => {
+    if (!trackId) return;
+    selectTrack(trackId);
+    setBottomPanelTab('sound');
+  };
 
   useEffect(() => {
     let raf: number;
@@ -78,7 +87,7 @@ export function ChannelStrip({
       )}
 
       {onPanChange && (
-        <label className="flex flex-col gap-0.5 text-[10px] text-ink-faint">
+        <label className="label-mono flex flex-col gap-0.5 text-ink-faint">
           Pan
           <input
             type="range"
@@ -87,7 +96,7 @@ export function ChannelStrip({
             step={0.05}
             value={pan ?? 0}
             onChange={(e) => onPanChange(Number(e.target.value))}
-            className="w-full accent-track-4"
+            className="w-full accent-accent"
           />
         </label>
       )}
@@ -107,20 +116,40 @@ export function ChannelStrip({
           step={0.5}
           value={gainDb}
           onChange={(e) => onGainChange(Number(e.target.value))}
-          className="h-32 w-6 accent-track-4"
+          className="h-32 w-6 accent-accent"
           style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
           title={`${gainDb.toFixed(1)} dB`}
         />
       </div>
       <div className="tabular text-center text-[10px] text-ink-faint">{gainDb.toFixed(1)} dB</div>
 
-      <EffectsRack
-        effects={effects}
-        onAdd={onAddEffect}
-        onRemove={onRemoveEffect}
-        onReorder={onReorderEffect}
-        onUpdate={onUpdateEffect}
-      />
+      {trackId ? (
+        // Real tracks: a compact insert summary — right-click a clip bar or
+        // this pill both land on the same Sound tab (SoundPanel), so effects
+        // editing has exactly one UI instead of a duplicated inline rack.
+        <button
+          type="button"
+          onClick={openSoundTab}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            openSoundTab();
+          }}
+          className="label-mono truncate rounded border border-hairline bg-surface-1 px-1.5 py-1 text-center text-[10px] text-ink-dim hover:border-accent hover:text-accent"
+          title="Open instrument & effects"
+        >
+          {effects[0] ? EFFECT_LABELS[effects[0].type] : '+ Insert'}
+        </button>
+      ) : (
+        // The master bus has no track to select — its effects stay inline,
+        // same as before.
+        <EffectsRack
+          effects={effects}
+          onAdd={onAddEffect}
+          onRemove={onRemoveEffect}
+          onReorder={onReorderEffect}
+          onUpdate={onUpdateEffect}
+        />
+      )}
     </div>
   );
 }

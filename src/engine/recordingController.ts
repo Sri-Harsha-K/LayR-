@@ -4,7 +4,7 @@
 // project store (see its own header comment) — this module is the one
 // bridge between the two, shared by the transport bar's Record button and
 // the "R" keyboard shortcut so both stay in sync.
-import { useProjectStore } from '../state/projectStore';
+import { nextClipName, useProjectStore } from '../state/projectStore';
 import { generateId } from '../utils/id';
 import { audioEngine } from './AudioEngine';
 import { registerSample } from './sampleRegistry';
@@ -26,11 +26,13 @@ export async function toggleRecording(): Promise<void> {
 
     const arrayBuffer = await blob.arrayBuffer();
     const { ref, durationSeconds } = await registerSample('Recording', arrayBuffer);
-    const bpm = useProjectStore.getState().project.bpm;
+    const project = useProjectStore.getState().project;
+    const track = project.tracks.find((t) => t.id === trackId);
     const clip: Clip = {
       id: generateId('clip'),
       startTicks,
-      lengthTicks: Math.max(1, Math.round(secondsToTicks(durationSeconds, bpm))),
+      lengthTicks: Math.max(1, Math.round(secondsToTicks(durationSeconds, project.bpm))),
+      name: track ? nextClipName(track, 'audio', 'Take') : undefined,
       kind: 'audio',
       fileRef: ref,
       bufferOffsetSec: 0,

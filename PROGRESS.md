@@ -7,7 +7,12 @@
 - Phase 2 — Piano roll + synths: done.
 - Phase 3 — Mixer + effects: done.
 - Phase 4 — Recording: done.
-- **Phase 5 — Arrangement + persistence + export: done.**
+- Phase 5 — Arrangement + persistence + export: done.
+- **Phase 6 — Layr-style theme + Sound tab + Capture view: done.**
+- Phase 7 (Session view + scenes engine), Phase 8 (Library tab), Phase 9
+  (Export dialog + Start screen) — scoped, not yet built. See
+  `C:\Users\leo\.claude\plans\enchanted-squishing-island.md` for the full
+  staged plan.
 
 ## Phase 0 summary
 
@@ -604,6 +609,90 @@ design surface — went last.
   `typecheck`/`lint`/`test`/`build`, never actually seen or dragged. The
   fader in particular is worth a real look first — CSS vertical-range
   rendering has historically had rough edges across browser versions.
+
+## Phase 6 summary
+
+Restyled the app to match a UI mock set (`Layr DAW.pdf`): near-black
+surfaces, a lime UI accent distinct from the 8 track colors, uppercase mono
+section labels. Also added the one interaction change the user asked for
+mid-design: **effects/instrument editing now lives behind a right-click**,
+not an always-open panel.
+
+- **Theme (`index.css`, `state/types.ts`)**: re-hexed `--color-surface-*`/
+  `-ink-*` to near-black, added `--color-accent` (lime) as a token
+  *separate* from `TRACK_COLORS` — every existing consumer that was using
+  `track-4` as a de-facto UI accent (focus ring, play-button active state,
+  loop-range tint, selected-clip ring, sliders, hover borders) was swapped
+  to the new `accent` token so a track literally colored blue is no longer
+  visually identical to "selected/active" state. `TRACK_COLORS` itself was
+  re-hexed to a mutier palette; the array shape didn't change, so no
+  consumer needed code changes beyond the color swap. Added a `.label-mono`
+  utility (mono, uppercase, tracked) applied to a representative set of
+  section labels (BottomDock tabs, BPM, Pan, Snap/Zoom, Swing) — not swept
+  into every label in the app; deeper pixel-level polish is left for a
+  follow-up pass.
+- **Clip naming**: `ClipBase` gained `name?: string`. New clips are
+  auto-named "`<Label> N`" counting same-kind clips already on the track
+  (`nextClipName` in `projectStore.ts`, reused by `recordingController.ts`
+  for takes) — this exists because the mock's Timeline/Session views show
+  real clip names ("Verse Beat", "Bassline"), and the data model had no
+  such field before. Renaming happens from the new Sound tab, not inline on
+  the bar, since the bar's double-click already means "add a volume
+  keyframe."
+- **The right-click mechanism (`components/sound/SoundPanel.tsx`)**: a 4th
+  `BottomPanelTab` (`'sound'`). Right-clicking a clip in `ArrangementView`,
+  right-clicking a track header in `TrackRail`, or clicking `ChannelStrip`'s
+  new compact "insert pill" (which replaced its previously-always-expanded
+  inline `EffectsRack`) all funnel into the same tab — one effects/
+  instrument UI, three entry points, instead of three separate ones. The
+  panel reuses `EffectsRack` completely unchanged (same store actions
+  `Mixer.tsx` already called) and adds a new kind-specific instrument
+  editor: a `Knob` component (`components/sound/Knob.tsx`, same
+  vertical-drag-delta convention as `Pad.tsx`'s velocity drag) for synth
+  params via the already-existing `setTrackInstrument` action and a new
+  `synthParamFields.ts` (mirrors `mixer/effectFields.ts`'s pattern: the
+  engine only knows param *keys*, UI ranges are a presentation concern
+  kept separate) — for drum tracks, a compact per-lane mute/sample list
+  reusing `StepSequencer`'s existing actions. The master bus strip is the
+  one exception: it has no track to select, so it keeps its inline
+  `EffectsRack` as before.
+- **Capture view (`components/capture/CaptureView.tsx`)**: recording
+  previously had no dedicated screen, just the Record button + Arm toggle.
+  Now, while `isRecording` (a new shared `useIsRecording` hook —
+  `TransportBar` was refactored to use it too instead of its own inline
+  poll, removing a duplicated rAF-poll block), a full overlay shows a live
+  input waveform and level meter. New engine bit: `recorder.ts` taps a
+  `Tone.Waveform` off the mic (fan-out, doesn't join the recorder's signal
+  path — same convention `graph.ts`'s meter taps use), surfaced through a
+  new `transient.ts` field (`recordingWaveform`) and drawn straight to
+  canvas in a rAF loop — same "never React state for per-frame data" rule
+  every meter/playhead in this app already follows. **Deliberately not
+  built**: the mock's Monitor/Loop-record toggles have no real mechanism
+  behind them in this engine (no hardware-monitoring or loop-record
+  concept exists) — left out rather than shipping non-functional switches.
+  Also **not built**: multi-take comping (mock shows stacked Take 1/Take 2
+  lanes) — the data model has one clip per recording, not a take list;
+  flagged as a possible future feature.
+
+### Known issues / flags for review (Phase 6)
+
+- Not interactively verified — no browser-automation tool connected this
+  session (`tabs_context_mcp` returned "not connected"). Verified via clean
+  `typecheck`/`lint`/`test` and a real `npm run dev` boot (200, no console
+  errors surfaced in the server log). The right-click-to-Sound-tab flow,
+  the Knob's drag-to-rotate feel, and the Capture view's live waveform
+  drawing have NOT been seen or exercised by a human or visual agent yet —
+  most important manual check before calling Phase 6 done.
+- Restyle pass covers the *representative* set of section labels/accent
+  usages, not an exhaustive sweep of every string in the app — some labels
+  (e.g. per-lane text in `StepSequencer`, `PianoRoll`'s own UI chrome)
+  still use the old plain style. Fine as an iterative look, not a gap in
+  functionality.
+- `Knob`'s rotation angle math (`transform: rotate()` on the button itself,
+  child indicator positioned near the top edge so it sweeps with the
+  parent) was chosen specifically to avoid combining `translate`+`rotate`
+  transform-order ambiguity — but like the fader before it, hasn't been
+  visually confirmed in a real browser.
 
 ## Volume keyframe automation (post-Phase 5)
 

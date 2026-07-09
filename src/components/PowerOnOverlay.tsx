@@ -21,10 +21,10 @@ export function PowerOnOverlay() {
         type="button"
         onClick={() => void handlePowerOn()}
         disabled={starting}
-        className="group flex flex-col items-center gap-4 rounded-2xl border border-hairline bg-surface-1 px-16 py-12 transition-colors hover:border-track-4 disabled:opacity-60"
+        className="group flex flex-col items-center gap-4 rounded-2xl border border-hairline bg-surface-1 px-16 py-12 transition-colors hover:border-accent disabled:opacity-60"
       >
         <span
-          className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-ink-dim text-ink-dim transition-colors group-hover:border-meter-green group-hover:text-meter-green"
+          className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-ink-dim text-ink-dim transition-colors group-hover:border-accent group-hover:text-accent"
           aria-hidden
         >
           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2">

@@ -47,6 +47,12 @@ function nextTrackColor(existing: Track[]): TrackColor {
   return free ?? TRACK_COLORS[existing.length % TRACK_COLORS.length]!;
 }
 
+/** Auto-names a new clip "<Label> N", counting only same-kind clips already on the track — matches the mock's named clips (Verse Beat, Bassline, ...) without requiring the user to name every one up front. */
+export function nextClipName(track: Track, kind: Clip['kind'], label: string): string {
+  const count = track.clips.filter((c) => c.kind === kind).length;
+  return `${label} ${count + 1}`;
+}
+
 function defaultDrumKit(): DrumLaneConfig[] {
   return DEFAULT_DRUM_LANES.map((l) => ({
     laneId: l.laneId,
@@ -237,10 +243,12 @@ export const useProjectStore = create<ProjectStore>()(
         const id = generateId('clip');
         const steps = 16;
         set((s) => {
+          const track = s.project.tracks.find((t) => t.id === trackId);
           const clip: Clip = {
             id,
             startTicks: 0,
             lengthTicks: patternLengthTicks(steps),
+            name: track ? nextClipName(track, 'pattern', 'Pattern') : undefined,
             kind: 'pattern',
             pattern: createDefaultPattern(steps),
           };
@@ -254,7 +262,15 @@ export const useProjectStore = create<ProjectStore>()(
       addDefaultMidiClip: (trackId) => {
         const id = generateId('clip');
         set((s) => {
-          const clip: Clip = { id, startTicks: 0, lengthTicks: patternLengthTicks(16), kind: 'midi', notes: [] };
+          const track = s.project.tracks.find((t) => t.id === trackId);
+          const clip: Clip = {
+            id,
+            startTicks: 0,
+            lengthTicks: patternLengthTicks(16),
+            name: track ? nextClipName(track, 'midi', 'MIDI') : undefined,
+            kind: 'midi',
+            notes: [],
+          };
           return {
             project: withTrack(s.project, trackId, (t) => ({ ...t, clips: [...t.clips, clip] })),
           };
