@@ -128,6 +128,30 @@ function FileControls() {
   );
 }
 
+function MainViewSwitch() {
+  const mainView = useUiStore((s) => s.mainView);
+  const setMainView = useUiStore((s) => s.setMainView);
+
+  return (
+    <div className="flex items-center gap-0.5 rounded-md border border-hairline p-0.5">
+      {(['timeline', 'session'] as const).map((view) => (
+        <button
+          key={view}
+          type="button"
+          onClick={() => setMainView(view)}
+          aria-pressed={mainView === view}
+          className={[
+            'label-mono rounded px-2 py-1 transition-colors',
+            mainView === view ? 'bg-accent/20 text-accent' : 'text-ink-faint hover:text-ink',
+          ].join(' ')}
+        >
+          {view}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TransportBar() {
   const bpm = useProjectStore((s) => s.project.bpm);
   const setBpm = useProjectStore((s) => s.setBpm);
@@ -166,6 +190,7 @@ export function TransportBar() {
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4">
       <div className="flex items-center gap-2">
         <FileControls />
+        <MainViewSwitch />
         <IconButton label="Play / Stop (Space)" active={isPlaying} disabled={!isPoweredOn} onClick={togglePlay}>
           {isPlaying ? (
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">

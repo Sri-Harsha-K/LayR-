@@ -13,6 +13,8 @@ export interface TransientState {
   masterMeterLevel: number;
   /** Live mic input waveform samples for CaptureView's canvas draw, null while not recording. */
   recordingWaveform: Float32Array | null;
+  /** trackId -> the clipId currently looping in Session view, if any. Mutated in place by sessionPlayer.ts — read one trackId at a time (see useSessionActiveClip) so polling stays a primitive comparison, not an object-identity one. */
+  sessionActiveClipByTrack: Record<string, string | undefined>;
 }
 
 const state: TransientState = {
@@ -22,6 +24,7 @@ const state: TransientState = {
   meterLevels: {},
   masterMeterLevel: 0,
   recordingWaveform: null,
+  sessionActiveClipByTrack: {},
 };
 
 export function getTransientState(): Readonly<TransientState> {
@@ -51,4 +54,12 @@ export function setMasterMeterLevel(level: number): void {
 
 export function setRecordingWaveform(data: Float32Array | null): void {
   state.recordingWaveform = data;
+}
+
+export function setSessionActiveClip(trackId: string, clipId: string | undefined): void {
+  state.sessionActiveClipByTrack[trackId] = clipId;
+}
+
+export function clearSessionActiveClips(): void {
+  state.sessionActiveClipByTrack = {};
 }

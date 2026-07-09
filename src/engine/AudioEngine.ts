@@ -27,6 +27,7 @@ function dbToUnit(db: number): number {
 class AudioEngine {
   private graph: BuiltGraph | null = null;
   private lastProject: Project | null = null;
+  private sessionMode = false;
   private initialized = false;
   private rafId: number | null = null;
   private unsubscribeTransportState: (() => void) | null = null;
@@ -96,8 +97,35 @@ class AudioEngine {
 
   private rebuild(project: Project): void {
     this.graph?.dispose();
-    this.graph = buildGraph(project);
+    this.graph = buildGraph(project, { scheduleArrangement: !this.sessionMode });
     transport.setBpmImmediate(clampBpm(project.bpm));
+  }
+
+  /**
+   * Timeline and Session are mutually exclusive schedulers on one shared
+   * Transport (see engine/sessionPlayer.ts) — switching pauses playback and
+   * rebuilds the graph so the Timeline's absolute-tick Parts/Players are
+   * skipped while Session is active (and restored when leaving it), so a
+   * track can never be double-triggered by both at once.
+   */
+  setSessionMode(enabled: boolean): void {
+    if (this.sessionMode === enabled) return;
+    this.sessionMode = enabled;
+    transport.pause();
+    if (this.lastProject) this.rebuild(this.lastProject);
+  }
+
+  /** Live per-track resources for sessionPlayer.ts to launch ad-hoc loops through — never used by React directly. */
+  getDrumVoices(trackId: string) {
+    return this.graph?.drumVoicesByTrack.get(trackId);
+  }
+
+  getSynthInstrument(trackId: string) {
+    return this.graph?.synthInstrumentsByTrack.get(trackId);
+  }
+
+  getTrackInput(trackId: string) {
+    return this.graph?.trackInputsByTrack.get(trackId);
   }
 
   async play(): Promise<void> {

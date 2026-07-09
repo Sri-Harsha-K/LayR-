@@ -12,6 +12,7 @@ import {
   type DrumPattern,
   type EffectInstance,
   type Project,
+  type Scene,
   type SynthConfig,
   type Track,
   type TrackColor,
@@ -27,6 +28,7 @@ export function createEmptyProject(name = 'Untitled Song'): Project {
       { id: generateId('fx'), type: 'limiter', bypass: false, params: { threshold: -1 } },
     ],
     tracks: [],
+    scenes: [],
   };
 }
 
@@ -105,6 +107,11 @@ interface ProjectActions {
   setTrackInstrument: (trackId: string, instrument: SynthConfig) => void;
   setTrackDrumKit: (trackId: string, drumKit: DrumLaneConfig[]) => void;
   setTrackArmed: (trackId: string, armed: boolean) => void;
+  addScene: (name?: string) => string;
+  renameScene: (sceneId: string, name: string) => void;
+  removeScene: (sceneId: string) => void;
+  reorderScenes: (fromIndex: number, toIndex: number) => void;
+  setClipScene: (trackId: string, clipId: string, sceneId: string | undefined) => void;
 }
 
 export type ProjectStore = { project: Project } & ProjectActions;
@@ -121,7 +128,10 @@ export const useProjectStore = create<ProjectStore>()(
     (set, get) => ({
       project: createEmptyProject(),
 
-      loadProject: (project) => set({ project }),
+      // Projects saved before Phase 7 have no `scenes` key on disk despite
+      // the `Project` type claiming it's always present — default it at the
+      // load boundary rather than trusting the type here.
+      loadProject: (project) => set({ project: { ...project, scenes: project.scenes ?? [] } }),
 
       setBpm: (bpm) =>
         set((s) => ({ project: { ...s.project, bpm: Math.max(40, Math.min(240, bpm)) } })),
@@ -419,6 +429,56 @@ export const useProjectStore = create<ProjectStore>()(
       setTrackArmed: (trackId, armed) =>
         set((s) => ({
           project: withTrack(s.project, trackId, (t) => ({ ...t, armed })),
+        })),
+
+      addScene: (name) => {
+        const id = generateId('scene');
+        set((s) => {
+          const scene: Scene = { id, name: name ?? `Scene ${s.project.scenes.length + 1}` };
+          return { project: { ...s.project, scenes: [...s.project.scenes, scene] } };
+        });
+        return id;
+      },
+
+      renameScene: (sceneId, name) =>
+        set((s) => ({
+          project: {
+            ...s.project,
+            scenes: s.project.scenes.map((sc) => (sc.id === sceneId ? { ...sc, name } : sc)),
+          },
+        })),
+
+      // Also clears sceneId off any clip that referenced it, so removing a
+      // scene never leaves a dangling reference — those clips just fall
+      // back to Timeline-only (invisible in the Session grid, unchanged in
+      // the Timeline itself).
+      removeScene: (sceneId) =>
+        set((s) => ({
+          project: {
+            ...s.project,
+            scenes: s.project.scenes.filter((sc) => sc.id !== sceneId),
+            tracks: s.project.tracks.map((t) => ({
+              ...t,
+              clips: t.clips.map((c) => (c.sceneId === sceneId ? { ...c, sceneId: undefined } : c)),
+            })),
+          },
+        })),
+
+      reorderScenes: (fromIndex, toIndex) =>
+        set((s) => {
+          const scenes = [...s.project.scenes];
+          const [moved] = scenes.splice(fromIndex, 1);
+          if (!moved) return s;
+          scenes.splice(toIndex, 0, moved);
+          return { project: { ...s.project, scenes } };
+        }),
+
+      setClipScene: (trackId, clipId, sceneId) =>
+        set((s) => ({
+          project: withTrack(s.project, trackId, (t) => ({
+            ...t,
+            clips: t.clips.map((c) => (c.id === clipId ? { ...c, sceneId } : c)),
+          })),
         })),
     }),
     {

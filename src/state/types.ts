@@ -24,6 +24,13 @@ export interface Project {
   masterGainDb: number;
   masterEffects: EffectInstance[];
   tracks: Track[];
+  /** Session-view rows. A clip joins a scene via ClipBase.sceneId. */
+  scenes: Scene[];
+}
+
+export interface Scene {
+  id: string;
+  name: string;
 }
 
 export type TrackKind = 'drum' | 'synth' | 'audio';
@@ -68,6 +75,8 @@ export interface ClipBase {
   /** User-facing label, editable from the Sound tab. Undefined falls back to a kind-based label (see clipLabel in ArrangementView). */
   name?: string;
   volumeKeyframes?: VolumeKeyframe[];
+  /** Session-view row this clip belongs to. Undefined = Timeline-only, not shown in the Session grid. */
+  sceneId?: string;
 }
 
 export type Clip = ClipBase &

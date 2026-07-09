@@ -8,9 +8,10 @@
 - Phase 3 — Mixer + effects: done.
 - Phase 4 — Recording: done.
 - Phase 5 — Arrangement + persistence + export: done.
-- **Phase 6 — Layr-style theme + Sound tab + Capture view: done.**
-- Phase 7 (Session view + scenes engine), Phase 8 (Library tab), Phase 9
-  (Export dialog + Start screen) — scoped, not yet built. See
+- Phase 6 — Layr-style theme + Sound tab + Capture view: done.
+- **Phase 7 — Session view + scenes engine: done.**
+- Phase 8 (Library tab), Phase 9 (Export dialog + Start screen) — scoped,
+  not yet built. See
   `C:\Users\leo\.claude\plans\enchanted-squishing-island.md` for the full
   staged plan.
 
@@ -693,6 +694,98 @@ not an always-open panel.
   parent) was chosen specifically to avoid combining `translate`+`rotate`
   transform-order ambiguity — but like the fader before it, hasn't been
   visually confirmed in a real browser.
+
+## Phase 7 summary
+
+Added the mock's "Direction B" main view — a Session/clip-launcher grid —
+as a real alternate main view (`uiStore.mainView: 'timeline' | 'session'`,
+switched from a new segmented control in `TransportBar`), plus the engine
+capability it actually needs: launching a clip independent of its position
+in the linear Timeline.
+
+- **Data model**: `Project.scenes: Scene[]` (`{id, name}`); `ClipBase`
+  gained `sceneId?: string`. A clip with a `sceneId` appears in the Session
+  grid at that scene's row, in its track's column; no `sceneId` = Timeline-
+  only, invisible in Session — this matches the mock's grid exactly (empty
+  cells are just tracks with no clip tagged to that scene). Store gained
+  `addScene`/`renameScene`/`removeScene` (also clears `sceneId` off any
+  clip that referenced a removed scene, so nothing dangles)/`reorderScenes`/
+  `setClipScene`. `loadProject` defaults `scenes: project.scenes ?? []` at
+  the load boundary for projects saved before this phase (the `Project`
+  type claims the field always exists, but old JSON on disk won't have it).
+  No persistence-layer changes needed beyond that — `platform/electron.ts`
+  round-trips the whole `Project` as one `JSON.stringify`/`parse` blob, so
+  a new field just rides along.
+- **The core engineering piece — `engine/sessionPlayer.ts`**: Session and
+  Timeline are **mutually exclusive schedulers sharing one Transport**, not
+  two independent audio engines. `graph.ts`'s `buildGraph` gained a
+  `BuildGraphOptions.scheduleArrangement` flag (default true) — when false,
+  `buildDrumTrack`/`buildSynthTrack`/`buildAudioTrack` still build the live
+  instrument/voices/trackInput (sessionPlayer needs them) but skip creating
+  the Timeline's absolute-tick Parts/Players, so a session-launched loop on
+  a track can never double-trigger against an arrangement Part on the same
+  track. `AudioEngine.setSessionMode(enabled)` pauses the transport and
+  rebuilds the graph with that flag; `SessionView`'s mount/unmount
+  (`useEffect`) is what actually flips it, via `sessionPlayer.setSessionMode`
+  (a thin wrapper that also calls `stopAll()` on the way out).
+  - Launching a clip builds an **ad-hoc looping** `Tone.Part` (pattern/midi)
+    or looping `Tone.Player` (audio), started at the next bar boundary
+    (`Math.ceil(currentTick / TICKS_PER_BAR) * TICKS_PER_BAR`) — reusing the
+    track's already-live instrument/drum-voices/trackInput via three new
+    `AudioEngine` accessors (`getDrumVoices`/`getSynthInstrument`/
+    `getTrackInput`) rather than sessionPlayer owning a second copy of
+    anything. `graph.ts`'s pattern/MIDI event-flattening (swing offsets,
+    volume-keyframe-scaled velocity) was extracted into exported
+    `buildPatternEvents`/`buildMidiEvents` specifically so the Timeline's
+    Part and Session's ad-hoc Part use the *exact same* math — two
+    schedulers, one source of truth for "what does this clip's content
+    actually sound like."
+  - **Per-track exclusivity**: launching a new clip on a track schedules
+    the previous one's stop at the same quantized boundary before starting
+    the new one. **Scene launch** = launch every track's clip tagged with
+    that scene, best-effort simultaneous (each computes the same boundary
+    independently). `stopAll()` (mode-exit only) tears down immediately, no
+    quantizing, since the transport itself is already pausing.
+  - "Now playing" highlight: `transient.ts` gained
+    `sessionActiveClipByTrack` (mutated **in place**, not replaced, since
+    `sessionPlayer.ts` only ever sets one key at a time) and a matching
+    `useSessionActiveClip(trackId)` hook that polls one primitive value per
+    rAF frame — deliberately per-trackId rather than one hook returning the
+    whole map, because polling a mutated-in-place object would never see a
+    changed reference and React would never re-render. The flip itself is
+    scheduled via `Tone.getTransport().scheduleOnce(...)` at the real
+    quantized tick, not applied optimistically at click time, so the
+    highlight reflects when playback actually changes, not when the button
+    was pressed.
+- **`components/session/SessionView.tsx`**: grid UI, columns = tracks
+  (shares `TrackRail`'s track order and colors), rows = scenes. Right-click
+  on a clip cell reuses the exact same "select track/clip, open Sound tab"
+  wiring `ArrangementView`'s clip bars use. Empty cells only offer a "+"
+  quick-add for drum/synth tracks (creates a default pattern/MIDI clip and
+  tags it with that scene) — audio tracks show a plain empty dash, since
+  authoring an empty audio clip has no meaning (audio content only exists
+  once recorded/imported).
+
+### Known issues / flags for review (Phase 7)
+
+- Not interactively verified — no browser tool connected this session.
+  This phase in particular has real audio-timing behavior (quantized
+  launch, per-track exclusivity, scene launch, the Timeline/Session mode
+  switch) that only a live audible pass can actually confirm; typecheck/
+  lint/test/dev-boot catch structural mistakes, not "does it sound right."
+  Most important manual check before calling Phase 7 done.
+- Launch quantize is fixed at 1 bar, not user-configurable (mock shows it
+  as a dropdown) — deliberate v1 scope call.
+- Switching Timeline↔Session mid-playback pauses the transport rather than
+  crossfading or otherwise handing off gracefully — acceptable but audibly
+  abrupt; revisit if that turns out to matter in practice.
+- Session-launched audio clips loop at their own fixed real-time duration
+  regardless of project BPM (same as Timeline audio clips already do in
+  `graph.ts` — audio content isn't time-stretched anywhere in this engine),
+  so an audio loop's length won't tempo-sync the way a pattern/MIDI loop
+  does. Consistent with existing behavior, but worth knowing going in.
+- No UI yet for reordering scenes (`reorderScenes` exists in the store,
+  unused) — scenes only reorder via removal/recreation today.
 
 ## Volume keyframe automation (post-Phase 5)
 

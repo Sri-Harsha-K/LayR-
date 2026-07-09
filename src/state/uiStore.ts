@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { TICKS_PER_BAR } from '../engine/time';
 
 export type BottomPanelTab = 'stepsequencer' | 'pianoroll' | 'mixer' | 'sound';
+export type MainView = 'timeline' | 'session';
 
 export interface Selection {
   trackId?: string;
@@ -11,6 +12,8 @@ export interface Selection {
 interface UiState {
   selection: Selection;
   bottomPanelTab: BottomPanelTab;
+  /** Timeline (linear arrangement) vs Session (clip launcher) — mutually exclusive playback scheduling, see engine/sessionPlayer.ts. */
+  mainView: MainView;
   pxPerBeat: number; // horizontal zoom for the arrangement view
   loopEnabled: boolean;
   loopStartTicks: number;
@@ -27,6 +30,7 @@ interface UiState {
   selectTrack: (trackId: string | undefined) => void;
   selectClip: (trackId: string | undefined, clipId: string | undefined) => void;
   setBottomPanelTab: (tab: BottomPanelTab) => void;
+  setMainView: (view: MainView) => void;
   setPxPerBeat: (px: number) => void;
   setLoopEnabled: (enabled: boolean) => void;
   /** Manual override (ruler drag) — also stops loopEndTicks from auto-following the arrangement. */
@@ -43,6 +47,7 @@ interface UiState {
 export const useUiStore = create<UiState>((set) => ({
   selection: {},
   bottomPanelTab: 'stepsequencer',
+  mainView: 'timeline',
   pxPerBeat: 32,
   // A step sequencer's whole point is looping playback, so loop defaults on
   // over a 1-bar window — exactly the span of a freshly-added pattern clip
@@ -60,6 +65,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectTrack: (trackId) => set({ selection: { trackId } }),
   selectClip: (trackId, clipId) => set({ selection: { trackId, clipId } }),
   setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
+  setMainView: (view) => set({ mainView: view }),
   setPxPerBeat: (px) => set({ pxPerBeat: Math.max(4, Math.min(400, px)) }),
   setLoopEnabled: (enabled) => set({ loopEnabled: enabled }),
   setLoopRange: (startTicks, endTicks) =>

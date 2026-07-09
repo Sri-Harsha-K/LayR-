@@ -22,6 +22,8 @@ export interface BuiltGraph {
   drumVoicesByTrack: Map<string, Map<string, DrumVoice>>;
   /** trackId -> the track's live instrument, exposed so the piano roll can preview a note. */
   synthInstrumentsByTrack: Map<string, SynthInstrument>;
+  /** trackId -> the pre-effects input gain, exposed so sessionPlayer can route an ad-hoc looping clip through the track's normal fader/pan/effects/mute/solo chain instead of bypassing it. */
+  trackInputsByTrack: Map<string, Tone.Gain>;
   /** trackId -> a post-fader/pan meter tap, polled by AudioEngine's rAF loop for the mixer's level bars. */
   metersByTrack: Map<string, Tone.Meter>;
   /** Post-master-effects-chain tap (what's actually about to hit the destination). */
@@ -30,14 +32,20 @@ export interface BuiltGraph {
   dispose(): void;
 }
 
-function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: Map<string, DrumVoice>): Tone.Part {
-  interface StepEvent {
-    time: string;
-    laneId: string;
-    velocity: number;
-  }
+export interface BuildGraphOptions {
+  /** False while Session view is the active main view — Timeline's absolute-tick Parts/Players are skipped so a session-launched loop on the same track can't double-trigger it. Defaults to true. */
+  scheduleArrangement?: boolean;
+}
 
-  const events: StepEvent[] = [];
+export interface PatternStepEvent {
+  time: string;
+  laneId: string;
+  velocity: number;
+}
+
+/** Flattens a pattern clip's "on" steps into swing/volume-adjusted trigger events. Shared by the Timeline's absolute-tick Part (buildPatternPart) and sessionPlayer.ts's ad-hoc looping Part — both need the exact same swing/velocity math, just different start/loop wiring. */
+export function buildPatternEvents(clip: Extract<Clip, { kind: 'pattern' }>): PatternStepEvent[] {
+  const events: PatternStepEvent[] = [];
   const swing = clampSwing(clip.pattern.swing);
   for (const lane of clip.pattern.lanes) {
     lane.steps.forEach((step, i) => {
@@ -50,10 +58,30 @@ function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: 
       });
     });
   }
+  return events;
+}
 
-  const part = new Tone.Part<StepEvent>((time, ev) => {
+export interface MidiNoteEvent {
+  time: string;
+  pitch: number;
+  durationTicks: number;
+  velocity: number;
+}
+
+/** Same sharing rationale as buildPatternEvents, for MIDI clips. */
+export function buildMidiEvents(clip: Extract<Clip, { kind: 'midi' }>): MidiNoteEvent[] {
+  return clip.notes.map((n) => ({
+    time: ticksToToneTime(n.startTicks),
+    pitch: n.pitch,
+    durationTicks: n.durationTicks,
+    velocity: n.velocity * sampleVolumeAtTick(clip.volumeKeyframes, n.startTicks),
+  }));
+}
+
+function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: Map<string, DrumVoice>): Tone.Part {
+  const part = new Tone.Part<PatternStepEvent>((time, ev) => {
     laneVoices.get(ev.laneId)?.trigger(time, ev.velocity);
-  }, events);
+  }, buildPatternEvents(clip));
   part.loop = true;
   part.loopEnd = ticksToToneTime(patternLengthTicks(clip.pattern.steps));
   part.start(ticksToToneTime(clip.startTicks));
@@ -62,23 +90,9 @@ function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: 
 }
 
 function buildMidiPart(clip: Extract<Clip, { kind: 'midi' }>, instrument: SynthInstrument): Tone.Part {
-  interface NoteEvent {
-    time: string;
-    pitch: number;
-    durationTicks: number;
-    velocity: number;
-  }
-
-  const events: NoteEvent[] = clip.notes.map((n) => ({
-    time: ticksToToneTime(n.startTicks),
-    pitch: n.pitch,
-    durationTicks: n.durationTicks,
-    velocity: n.velocity * sampleVolumeAtTick(clip.volumeKeyframes, n.startTicks),
-  }));
-
-  const part = new Tone.Part<NoteEvent>((time, ev) => {
+  const part = new Tone.Part<MidiNoteEvent>((time, ev) => {
     instrument.triggerNote(ev.pitch, ev.durationTicks, time, ev.velocity);
-  }, events);
+  }, buildMidiEvents(clip));
   part.start(ticksToToneTime(clip.startTicks));
   part.stop(ticksToToneTime(clip.startTicks + clip.lengthTicks));
   return part;
@@ -112,6 +126,7 @@ function buildDrumTrack(
   trackInput: Tone.Gain,
   disposables: Disposable[],
   parts: Tone.Part[],
+  scheduleArrangement: boolean,
 ): Map<string, DrumVoice> {
   const laneVoices = new Map<string, DrumVoice>();
 
@@ -127,9 +142,11 @@ function buildDrumTrack(
     laneVoices.set(lane.laneId, voice);
   }
 
-  for (const clip of track.clips) {
-    if (clip.kind !== 'pattern') continue;
-    parts.push(buildPatternPart(clip, laneVoices));
+  if (scheduleArrangement) {
+    for (const clip of track.clips) {
+      if (clip.kind !== 'pattern') continue;
+      parts.push(buildPatternPart(clip, laneVoices));
+    }
   }
 
   return laneVoices;
@@ -161,7 +178,8 @@ function scheduleVolumeAutomation(
   gainParam.setValueAtTime(sorted[sorted.length - 1]!.value, atClipTick(clipLengthTicks));
 }
 
-function buildAudioTrack(track: Track, trackInput: Tone.Gain, disposables: Disposable[]): void {
+function buildAudioTrack(track: Track, trackInput: Tone.Gain, disposables: Disposable[], scheduleArrangement: boolean): void {
+  if (!scheduleArrangement) return;
   for (const clip of track.clips) {
     if (clip.kind !== 'audio' || !hasSampleBuffer(clip.fileRef)) continue;
     const player = new Tone.Player(getSampleBuffer(clip.fileRef)!);
@@ -184,25 +202,30 @@ function buildSynthTrack(
   trackInput: Tone.Gain,
   disposables: Disposable[],
   parts: Tone.Part[],
+  scheduleArrangement: boolean,
 ): SynthInstrument | undefined {
   if (!track.instrument) return undefined;
   const instrument = createSynthInstrument(track.instrument);
   instrument.output.connect(trackInput);
   disposables.push(instrument);
 
-  for (const clip of track.clips) {
-    if (clip.kind !== 'midi') continue;
-    parts.push(buildMidiPart(clip, instrument));
+  if (scheduleArrangement) {
+    for (const clip of track.clips) {
+      if (clip.kind !== 'midi') continue;
+      parts.push(buildMidiPart(clip, instrument));
+    }
   }
 
   return instrument;
 }
 
-export function buildGraph(project: Project): BuiltGraph {
+export function buildGraph(project: Project, options: BuildGraphOptions = {}): BuiltGraph {
+  const scheduleArrangement = options.scheduleArrangement ?? true;
   const disposables: Disposable[] = [];
   const parts: Tone.Part[] = [];
   const drumVoicesByTrack = new Map<string, Map<string, DrumVoice>>();
   const synthInstrumentsByTrack = new Map<string, SynthInstrument>();
+  const trackInputsByTrack = new Map<string, Tone.Gain>();
   const metersByTrack = new Map<string, Tone.Meter>();
 
   const masterInput = new Tone.Gain(1);
@@ -229,20 +252,22 @@ export function buildGraph(project: Project): BuiltGraph {
   for (const track of project.tracks) {
     const { trackInput, meter } = buildTrackChannel(track, anySolo, masterInput, disposables);
     metersByTrack.set(track.id, meter);
+    trackInputsByTrack.set(track.id, trackInput);
 
     if (track.kind === 'drum') {
-      drumVoicesByTrack.set(track.id, buildDrumTrack(track, trackInput, disposables, parts));
+      drumVoicesByTrack.set(track.id, buildDrumTrack(track, trackInput, disposables, parts, scheduleArrangement));
     } else if (track.kind === 'synth') {
-      const instrument = buildSynthTrack(track, trackInput, disposables, parts);
+      const instrument = buildSynthTrack(track, trackInput, disposables, parts, scheduleArrangement);
       if (instrument) synthInstrumentsByTrack.set(track.id, instrument);
     } else if (track.kind === 'audio') {
-      buildAudioTrack(track, trackInput, disposables);
+      buildAudioTrack(track, trackInput, disposables, scheduleArrangement);
     }
   }
 
   return {
     drumVoicesByTrack,
     synthInstrumentsByTrack,
+    trackInputsByTrack,
     metersByTrack,
     masterMeter,
     parts,
