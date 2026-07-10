@@ -133,10 +133,13 @@ export function TrackRail() {
   const reorderTracks = useProjectStore((s) => s.reorderTracks);
   const selectClip = useUiStore((s) => s.selectClip);
   const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
+  const requestConfirm = useUiStore((s) => s.requestConfirm);
 
   const handleClearTracks = () => {
-    clearTracks();
-    selectClip(undefined, undefined);
+    requestConfirm(`Delete all ${tracks.length} track${tracks.length === 1 ? '' : 's'}? You can undo with Ctrl+Z.`, () => {
+      clearTracks();
+      selectClip(undefined, undefined);
+    });
   };
 
   const rowsRef = useRef<HTMLDivElement>(null);

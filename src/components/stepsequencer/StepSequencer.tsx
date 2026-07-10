@@ -21,6 +21,7 @@ export function StepSequencer() {
   const tracks = useProjectStore((s) => s.project.tracks);
   const updateClip = useProjectStore((s) => s.updateClip);
   const setTrackDrumKit = useProjectStore((s) => s.setTrackDrumKit);
+  const requestConfirm = useUiStore((s) => s.requestConfirm);
 
   const track = tracks.find((t) => t.id === selection.trackId);
   const clip = track?.clips.find((c) => c.id === selection.clipId);
@@ -95,8 +96,10 @@ export function StepSequencer() {
   };
 
   const handleClearPattern = () => {
-    patchPattern({
-      lanes: pattern.lanes.map((l) => ({ ...l, steps: l.steps.map((step) => ({ ...step, on: false })) })),
+    requestConfirm("Clear this pattern? All steps will be turned off. You can undo with Ctrl+Z.", () => {
+      patchPattern({
+        lanes: pattern.lanes.map((l) => ({ ...l, steps: l.steps.map((step) => ({ ...step, on: false })) })),
+      });
     });
   };
 

@@ -38,6 +38,7 @@ export function PianoRoll() {
   const tracks = useProjectStore((s) => s.project.tracks);
   const updateClip = useProjectStore((s) => s.updateClip);
   const setTrackInstrument = useProjectStore((s) => s.setTrackInstrument);
+  const requestConfirm = useUiStore((s) => s.requestConfirm);
 
   const [pxPerBeat, setPxPerBeat] = useState(96);
   const [snapIndex, setSnapIndex] = useState(4); // 1/16
@@ -220,7 +221,11 @@ export function PianoRoll() {
         <span className="text-ink-faint">Right-click a note to delete</span>
         <button
           type="button"
-          onClick={() => patchNotes([])}
+          onClick={() =>
+            requestConfirm(`Clear all ${notes.length} note${notes.length === 1 ? '' : 's'}? You can undo with Ctrl+Z.`, () =>
+              patchNotes([]),
+            )
+          }
           title="Remove every note in this MIDI clip"
           className="rounded-md border border-hairline px-2 py-1 text-xs text-ink-dim hover:border-record hover:text-record"
         >

@@ -9,12 +9,20 @@ export interface Selection {
   clipId?: string;
 }
 
+/** A pending bulk-delete confirmation (Clear Tracks / Clear Pattern / Clear MIDI) — null when no dialog is showing. */
+export interface ConfirmRequest {
+  message: string;
+  onConfirm: () => void;
+}
+
 interface UiState {
   selection: Selection;
   bottomPanelTab: BottomPanelTab;
   /** Timeline (linear arrangement) vs Session (clip launcher) — mutually exclusive playback scheduling, see engine/sessionPlayer.ts. */
   mainView: MainView;
   isExportDialogOpen: boolean;
+  /** Set by requestConfirm to show ConfirmDialog.tsx; null = no dialog showing. */
+  confirmRequest: ConfirmRequest | null;
   /** User-facing error surfaced by Toast.tsx — e.g. save/open/export failures that would otherwise fail silently. Null = no toast shown. */
   toastMessage: string | null;
   pxPerBeat: number; // horizontal zoom for the arrangement view
@@ -40,6 +48,9 @@ interface UiState {
   setBottomPanelTab: (tab: BottomPanelTab) => void;
   setMainView: (view: MainView) => void;
   setExportDialogOpen: (open: boolean) => void;
+  /** Shows ConfirmDialog.tsx with `message`; `onConfirm` runs once the user clicks the destructive action, then the dialog closes itself. */
+  requestConfirm: (message: string, onConfirm: () => void) => void;
+  cancelConfirm: () => void;
   setToast: (message: string | null) => void;
   setPxPerBeat: (px: number) => void;
   setLoopEnabled: (enabled: boolean) => void;
@@ -62,6 +73,7 @@ export const useUiStore = create<UiState>((set) => ({
   bottomPanelTab: 'stepsequencer',
   mainView: 'timeline',
   isExportDialogOpen: false,
+  confirmRequest: null,
   toastMessage: null,
   pxPerBeat: 32,
   // A step sequencer's whole point is looping playback, so loop defaults on
@@ -84,6 +96,8 @@ export const useUiStore = create<UiState>((set) => ({
   setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
   setMainView: (view) => set({ mainView: view }),
   setExportDialogOpen: (open) => set({ isExportDialogOpen: open }),
+  requestConfirm: (message, onConfirm) => set({ confirmRequest: { message, onConfirm } }),
+  cancelConfirm: () => set({ confirmRequest: null }),
   setToast: (message) => set({ toastMessage: message }),
   setPxPerBeat: (px) => set({ pxPerBeat: Math.max(4, Math.min(400, px)) }),
   setLoopEnabled: (enabled) => set({ loopEnabled: enabled }),

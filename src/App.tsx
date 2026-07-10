@@ -6,6 +6,7 @@ import { BottomDock } from './components/BottomDock';
 import { PowerOnOverlay } from './components/PowerOnOverlay';
 import { CaptureView } from './components/capture/CaptureView';
 import { ExportDialog } from './components/ExportDialog';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { Toast } from './components/Toast';
 import { ResizeHandle } from './components/ResizeHandle';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -36,6 +37,7 @@ function App() {
       <BottomDock />
       <PowerOnOverlay />
       <ExportDialog />
+      <ConfirmDialog />
       <Toast />
     </div>
   );
