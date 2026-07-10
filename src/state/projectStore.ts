@@ -96,6 +96,7 @@ interface ProjectActions {
   setMasterGainDb: (db: number) => void;
   addTrack: (kind: Track['kind'], name?: string) => string;
   removeTrack: (trackId: string) => void;
+  clearTracks: () => void;
   reorderTracks: (fromIndex: number, toIndex: number) => void;
   renameTrack: (trackId: string, name: string) => void;
   updateTrackMixer: (trackId: string, patch: Partial<Track['mixer']>) => void;
@@ -170,6 +171,8 @@ export const useProjectStore = create<ProjectStore>()(
         set((s) => ({
           project: { ...s.project, tracks: s.project.tracks.filter((t) => t.id !== trackId) },
         })),
+
+      clearTracks: () => set((s) => ({ project: { ...s.project, tracks: [] } })),
 
       reorderTracks: (fromIndex, toIndex) =>
         set((s) => {

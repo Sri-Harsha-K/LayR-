@@ -218,6 +218,14 @@ export function PianoRoll() {
           </select>
         </label>
         <span className="text-ink-faint">Right-click a note to delete</span>
+        <button
+          type="button"
+          onClick={() => patchNotes([])}
+          title="Remove every note in this MIDI clip"
+          className="rounded-md border border-hairline px-2 py-1 text-xs text-ink-dim hover:border-record hover:text-record"
+        >
+          Clear MIDI
+        </button>
         <div className="ml-auto flex items-center gap-1">
           <button
             type="button"

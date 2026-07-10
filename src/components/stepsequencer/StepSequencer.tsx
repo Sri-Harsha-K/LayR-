@@ -94,6 +94,12 @@ export function StepSequencer() {
     );
   };
 
+  const handleClearPattern = () => {
+    patchPattern({
+      lanes: pattern.lanes.map((l) => ({ ...l, steps: l.steps.map((step) => ({ ...step, on: false })) })),
+    });
+  };
+
   const handleLoadSample = async (laneId: string) => {
     const file = await platform.pickSampleFile();
     if (!file) return;
@@ -121,6 +127,14 @@ export function StepSequencer() {
           <span className="tabular w-10">{Math.round((pattern.swing / 0.66) * 100)}%</span>
         </label>
         <span className="text-xs text-ink-faint">{pattern.steps} steps</span>
+        <button
+          type="button"
+          onClick={handleClearPattern}
+          title="Turn off every step in this pattern"
+          className="rounded-md border border-hairline px-2 py-1 text-xs text-ink-dim hover:border-record hover:text-record"
+        >
+          Clear Pattern
+        </button>
       </div>
 
       <div className="flex flex-1 flex-col gap-1 overflow-auto">

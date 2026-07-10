@@ -127,11 +127,17 @@ function TrackHeaderRow({
 export function TrackRail() {
   const tracks = useProjectStore((s) => s.project.tracks);
   const addTrack = useProjectStore((s) => s.addTrack);
+  const clearTracks = useProjectStore((s) => s.clearTracks);
   const addDefaultPatternClip = useProjectStore((s) => s.addDefaultPatternClip);
   const addDefaultMidiClip = useProjectStore((s) => s.addDefaultMidiClip);
   const reorderTracks = useProjectStore((s) => s.reorderTracks);
   const selectClip = useUiStore((s) => s.selectClip);
   const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
+
+  const handleClearTracks = () => {
+    clearTracks();
+    selectClip(undefined, undefined);
+  };
 
   const rowsRef = useRef<HTMLDivElement>(null);
   const dragFromIndex = useRef<number | null>(null);
@@ -185,8 +191,23 @@ export function TrackRail() {
       style={{ width: trackRailWidth }}
     >
       {/* Reserves the same vertical space as ArrangementView's toolbar+ruler
-          header, so track row 0 here lines up with track lane 0 there. */}
-      <div className="shrink-0 border-b border-hairline bg-surface-1" style={{ height: ARRANGEMENT_HEADER_HEIGHT }} />
+          header, so track row 0 here lines up with track lane 0 there —
+          fixed height must stay ARRANGEMENT_HEADER_HEIGHT even with the
+          button inside. */}
+      <div
+        className="flex shrink-0 items-center border-b border-hairline bg-surface-1 px-2"
+        style={{ height: ARRANGEMENT_HEADER_HEIGHT }}
+      >
+        <button
+          type="button"
+          onClick={handleClearTracks}
+          disabled={tracks.length === 0}
+          title="Remove all tracks"
+          className="rounded-md border border-hairline px-2 py-1 text-xs text-ink-dim hover:border-record hover:text-record disabled:opacity-30"
+        >
+          Clear Tracks
+        </button>
+      </div>
       <div
         ref={rowsRef}
         className="flex flex-col"
