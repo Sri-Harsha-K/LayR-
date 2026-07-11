@@ -122,10 +122,18 @@ export async function openProject(): Promise<boolean> {
  * silently treating a recovered draft as up-to-date on disk.
  */
 export async function recoverAutosave(): Promise<boolean> {
-  const snapshot = await platform.loadAutosave();
-  if (!snapshot) return false;
-  await loadOpened(snapshot);
-  return true;
+  try {
+    const snapshot = await platform.loadAutosave();
+    if (!snapshot) return false;
+    await loadOpened(snapshot);
+    return true;
+  } catch (err) {
+    // Boot-time recovery — a corrupt/unreadable autosave should never block
+    // startup. sanitizeProject() itself doesn't throw, but IndexedDB access
+    // and JSON decoding upstream of it can.
+    reportFailure(err, 'Could not recover the autosaved project.');
+    return false;
+  }
 }
 
 export async function autosaveNow(): Promise<void> {

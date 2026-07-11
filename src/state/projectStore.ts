@@ -4,6 +4,7 @@ import type { TemporalState } from 'zundo';
 import { generateId } from '../utils/id';
 import { DEFAULT_BPM, clampBpm, patternLengthTicks, ticksToSeconds } from '../engine/time';
 import { getDefaultPresetForEngine } from '../engine/instruments/synthPresets';
+import { sanitizeProject } from './sanitizeProject';
 import {
   DEFAULT_DRUM_LANES,
   TRACK_COLORS,
@@ -32,16 +33,10 @@ export function createEmptyProject(name = 'Untitled Song'): Project {
   };
 }
 
-// Projects saved before Phase 7 have no `scenes` key on disk despite the
-// `Project` type claiming it's always present — defaulted here alongside
-// the BPM clamp, since both are "make an untrusted loaded project conform
-// to current invariants" concerns.
-export function sanitizeProject(project: Project): Project {
-  const bpm = clampBpm(project.bpm);
-  const scenes = project.scenes ?? [];
-  if (bpm === project.bpm && scenes === project.scenes) return project;
-  return { ...project, bpm, scenes };
-}
+// Full field-by-field validation (untrusted-project trust boundary) lives
+// in sanitizeProject.ts — re-exported here since every existing call site
+// imports it from this module.
+export { sanitizeProject };
 
 /** The tick position where the last clip on any track ends — the natural length of the whole arrangement. 0 if there are no clips. */
 export function furthestClipEndTicks(tracks: Track[]): number {

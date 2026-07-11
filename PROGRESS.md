@@ -1147,3 +1147,68 @@ undefined = 'linear', so existing saved projects need no migration).
   many short linear ramps) is low-risk, but actually hearing an audio
   clip's spline-curve fade and seeing the drawn curve match it has not been
   checked by a human or visual agent yet.
+
+## Security hardening pass (post-Phase 9)
+
+A full assessment of the app's security posture (Electron process isolation,
+IPC/file-I/O trust boundary, XSS surface, network calls, zip parsing,
+dependencies) found the process-isolation basics already correct
+(`contextIsolation`/`sandbox`/`nodeIntegration: false`, permission handler
+scoped to mic-only, zero network calls, zero `dangerouslySetInnerHTML`/
+`eval` anywhere in `src/`, `npm audit` clean) and four gaps, all now fixed:
+
+- **`state/sanitizeProject.ts` (new file, replacing a 5-line version inline
+  in `projectStore.ts`):** the old `sanitizeProject()` only clamped `bpm`
+  and defaulted `scenes` — everything else in a loaded project.json was
+  cast straight to `Project` and trusted. A malformed or hostile project
+  file (an opened `.dawproj`/`.layrproj`, or a corrupt autosave) could
+  carry an unknown effect/synth-engine/clip-kind string that would hit an
+  exhaustive `switch`'s `default: throw` in `engine/effects.ts`/
+  `synthFactory.ts`, or `NaN`/`Infinity` numeric fields reaching Tone.js.
+  The new version rebuilds the project field-by-field — unknown enum
+  values dropped/defaulted, all numeric fields clamped to a finite bounded
+  range, arrays length-capped — and never throws itself, so a bad field
+  degrades to a safe default instead of failing the whole load.
+  `projectIO.ts`'s `recoverAutosave()` (boot-time crash recovery) was also
+  `void`-called with no error handling at all — now wrapped in try/catch so
+  a corrupt autosave surfaces a toast instead of an unhandled rejection at
+  startup. 16 new tests in `sanitizeProject.test.ts`.
+- **`electron/main.ts`:** added `webContents.setWindowOpenHandler` (deny
+  all new-window creation) and a `will-navigate` guard (only allows
+  navigation to the currently-loaded URL — same-URL reloads, i.e. Vite
+  HMR's full-reload fallback and Ctrl+R, still work; anything else is
+  blocked). Standard Electron hardening-checklist item; nothing in the
+  renderer currently triggers either path, so this is defense-in-depth
+  against a compromised renderer navigating the window off local content.
+- **Zip-slip hardening:** `engine/zipReader.ts`'s `readZip()` decoded entry
+  names with no validation — a crafted `../../evil.txt`-style name was
+  accepted as-is. Not previously exploitable (the only consumer,
+  `platform/browser.ts`'s Firefox/Safari `.layrproj` fallback, hands names
+  to the File System Access API, which rejects `/`-containing names
+  itself), but `electron/main.ts`'s `saveProject` IPC handler had the
+  identical unguarded `path.join(projectDirPath, file.relPath)` shape and
+  was only safe because `relPath` is always app-generated today. Fixed
+  both ends: `readZip` now throws on any entry name containing a `..`
+  segment, a leading `/`, or a Windows drive-letter prefix; `main.ts` gained
+  a `resolveWithinDir()` helper used in `saveProject` so an escaping
+  `relPath` throws (safely — `projectIO.ts` already catches and toasts any
+  `saveProject` failure) instead of writing outside the project folder.
+- **CSP for the packaged app:** neither `index.html` nor the main process
+  set a `Content-Security-Policy`. Added one via
+  `session.defaultSession.webRequest.onHeadersReceived`, gated on
+  `!isDev` — deliberately main-process-injected rather than an
+  `index.html` `<meta>` tag, since `index.html` is shared byte-for-byte
+  between dev and prod and a meta tag would apply identically to Vite's
+  dev server (real risk of breaking HMR's websocket/eval-based fast
+  refresh, with no clean way to scope around it). `style-src
+  'unsafe-inline'` is kept deliberately — the transient-state rendering
+  pattern (meters, playheads, `style={{borderLeft: ...}}` per-track
+  colors) writes inline `style` directly on DOM nodes throughout the
+  codebase, which a strict `style-src` would break. `worker-src 'self'
+  blob:` is included defensively for Tone.js's possible AudioWorklet
+  usage. **Not verified against a real packaged build** (`npm run dist`)
+  — only `npm run dev:desktop`, which skips this entirely by design (the
+  header is `!isDev`-gated). If Tone.js needs something the policy
+  doesn't allow, audio would silently fail only in the packaged app, never
+  in dev — worth a manual check against an actual installer build before
+  fully trusting this.

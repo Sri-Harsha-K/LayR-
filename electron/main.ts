@@ -13,6 +13,21 @@ import {
 const isDev = !app.isPackaged;
 const DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 
+const CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; media-src 'self'; worker-src 'self' blob:; " +
+  "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none';";
+
+/** Resolves `relPath` against `baseDir` and throws if the result would land outside it — the zip-slip guard for the one real filesystem write this app does with a caller-supplied relative path (see engine/zipReader.ts's own read-side guard for the other end of this same concern). */
+function resolveWithinDir(baseDir: string, relPath: string): string {
+  const base = path.resolve(baseDir);
+  const resolved = path.resolve(base, relPath);
+  if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+    throw new Error(`Refusing to write outside the project folder: ${relPath}`);
+  }
+  return resolved;
+}
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1440,
@@ -30,6 +45,32 @@ function createWindow(): void {
 
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(permission === 'media');
+  });
+
+  // Dev mode is deliberately left untouched — Vite's HMR client/websocket
+  // and dev-mode module loading aren't guaranteed compatible with this
+  // policy, and dev mode isn't a real security boundary anyway (DevTools
+  // are already open). This only protects the actual shipped artifact.
+  if (!isDev) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [CSP],
+        },
+      });
+    });
+  }
+
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  win.webContents.on('will-navigate', (event, navigationUrl) => {
+    // Same-URL reloads (Vite HMR's full-reload fallback, Ctrl+R) are fine —
+    // only block navigating to a *different* URL, which nothing in this
+    // app's renderer ever legitimately does.
+    if (navigationUrl !== win.webContents.getURL()) {
+      event.preventDefault();
+    }
   });
 
   if (isDev) {
@@ -113,7 +154,7 @@ ipcMain.handle(
     await fs.mkdir(path.join(projectDirPath, 'audio'), { recursive: true });
     await fs.writeFile(path.join(projectDirPath, 'project.json'), args.projectJson, 'utf-8');
     for (const file of args.audioFiles) {
-      await fs.writeFile(path.join(projectDirPath, file.relPath), Buffer.from(file.data));
+      await fs.writeFile(resolveWithinDir(projectDirPath, file.relPath), Buffer.from(file.data));
     }
     return { projectDirPath };
   },

@@ -24,4 +24,15 @@ describe('readZip', () => {
   it('rejects a non-zip buffer', () => {
     expect(() => readZip(new Uint8Array([1, 2, 3, 4]))).toThrow(/not a valid .zip/i);
   });
+
+  it('rejects a zip-slip entry name instead of handing a traversal path to callers', () => {
+    const traversal = buildZip([{ name: '../../evil.txt', data: new Uint8Array([1]) }]);
+    expect(() => readZip(traversal)).toThrow(/unsafe entry name/i);
+
+    const absolute = buildZip([{ name: '/etc/passwd', data: new Uint8Array([1]) }]);
+    expect(() => readZip(absolute)).toThrow(/unsafe entry name/i);
+
+    const windowsDrive = buildZip([{ name: 'C:\\Windows\\evil.dll', data: new Uint8Array([1]) }]);
+    expect(() => readZip(windowsDrive)).toThrow(/unsafe entry name/i);
+  });
 });

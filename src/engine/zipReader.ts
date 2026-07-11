@@ -9,6 +9,13 @@ const CENTRAL_SIGNATURE = 0x02014b50;
 const LOCAL_SIGNATURE = 0x04034b50;
 const EOCD_MIN_SIZE = 22;
 const MAX_COMMENT_SIZE = 0xffff;
+const WINDOWS_ABSOLUTE_PATH = /^[a-zA-Z]:/;
+
+/** Rejects the classic "zip-slip" entry-name shapes (`../`, a leading `/`, a Windows drive letter) before a caller ever gets the chance to join one into a real filesystem path — see electron/main.ts's saveProject handler, the one real writer that consumes this output. */
+function isSafeEntryName(name: string): boolean {
+  if (name.startsWith('/') || name.startsWith('\\') || WINDOWS_ABSOLUTE_PATH.test(name)) return false;
+  return !name.split(/[/\\]/).includes('..');
+}
 
 function findEndOfCentralDirectory(view: DataView, length: number): number {
   const searchStart = Math.max(0, length - EOCD_MIN_SIZE - MAX_COMMENT_SIZE);
@@ -39,6 +46,7 @@ export function readZip(bytes: Uint8Array): ZipEntry[] {
     const commentLen = view.getUint16(pos + 32, true);
     const localHeaderOffset = view.getUint32(pos + 42, true);
     const name = new TextDecoder().decode(bytes.subarray(pos + 46, pos + 46 + nameLen));
+    if (!isSafeEntryName(name)) throw new Error(`Unsafe entry name in .zip: ${name}`);
 
     if (view.getUint32(localHeaderOffset, true) !== LOCAL_SIGNATURE) {
       throw new Error('Corrupt .zip local file header.');
