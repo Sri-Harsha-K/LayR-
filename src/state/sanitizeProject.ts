@@ -11,6 +11,7 @@
 // enum membership, array-length bounds against a pathological file).
 import { generateId } from '../utils/id';
 import { clampBpm, clampSwing } from '../engine/time';
+import { clampSpeed } from '../engine/speed';
 import { getDefaultPresetForEngine } from '../engine/instruments/synthPresets';
 import {
   DEFAULT_DRUM_LANES,
@@ -218,6 +219,9 @@ function sanitizeClipBase(v: Record<string, unknown>): ClipBase {
   if (keyframes) base.volumeKeyframes = keyframes;
   if (v['volumeCurve'] === 'spline' || v['volumeCurve'] === 'linear') base.volumeCurve = v['volumeCurve'];
   if (typeof v['sceneId'] === 'string') base.sceneId = v['sceneId'];
+  // Only set when actually present — an absent speed stays undefined (= 1.0x),
+  // so projects saved before the speed feature need no migration.
+  if (typeof v['speed'] === 'number') base.speed = clampSpeed(v['speed']);
   return base;
 }
 
@@ -278,12 +282,15 @@ function sanitizeTrack(v: unknown, usedColors: Set<string>): Track | null {
   if (kind === 'synth') track.instrument = sanitizeInstrument(v['instrument']);
   if (kind === 'drum') track.drumKit = sanitizeDrumKit(v['drumKit']);
   if (kind === 'audio') track.armed = bool(v['armed'], false);
+  if (typeof v['speed'] === 'number') track.speed = clampSpeed(v['speed']);
   return track;
 }
 
 function sanitizeScene(v: unknown): Scene | null {
   if (!isObject(v)) return null;
-  return { id: str(v['id'], generateId('scene'), 64), name: str(v['name'], 'Scene', MAX_STRING_LENGTH) };
+  const scene: Scene = { id: str(v['id'], generateId('scene'), 64), name: str(v['name'], 'Scene', MAX_STRING_LENGTH) };
+  if (typeof v['speed'] === 'number') scene.speed = clampSpeed(v['speed']);
+  return scene;
 }
 
 /**

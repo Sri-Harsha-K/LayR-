@@ -11,6 +11,7 @@ import { buildEffectChain } from './effects';
 import { createDrumVoice, createSampleDrumVoice, type DrumVoice } from './instruments/drumKit';
 import { createSynthInstrument, type SynthInstrument } from './instruments/synthFactory';
 import { getSampleBuffer, hasSampleBuffer } from './sampleRegistry';
+import { DEFAULT_SPEED, effectiveSpeed } from './speed';
 import { clampSwing, patternLengthTicks, stepOffsetTicks, ticksToToneTime } from './time';
 
 interface Disposable {
@@ -43,8 +44,8 @@ export interface PatternStepEvent {
   velocity: number;
 }
 
-/** Flattens a pattern clip's "on" steps into swing/volume-adjusted trigger events. Shared by the Timeline's absolute-tick Part (buildPatternPart) and sessionPlayer.ts's ad-hoc looping Part — both need the exact same swing/velocity math, just different start/loop wiring. */
-export function buildPatternEvents(clip: Extract<Clip, { kind: 'pattern' }>): PatternStepEvent[] {
+/** Flattens a pattern clip's "on" steps into swing/volume-adjusted trigger events. Shared by the Timeline's absolute-tick Part (buildPatternPart) and sessionPlayer.ts's ad-hoc looping Part — both need the exact same swing/velocity math, just different start/loop wiring. `speed` compresses each event's tick offset (faster = events closer together); volume is still sampled at the clip-logical, unscaled offset so the curve maps to the clip's own timeline regardless of speed. */
+export function buildPatternEvents(clip: Extract<Clip, { kind: 'pattern' }>, speed: number = DEFAULT_SPEED): PatternStepEvent[] {
   const events: PatternStepEvent[] = [];
   const swing = clampSwing(clip.pattern.swing);
   for (const lane of clip.pattern.lanes) {
@@ -52,7 +53,7 @@ export function buildPatternEvents(clip: Extract<Clip, { kind: 'pattern' }>): Pa
       if (!step.on) return;
       const offset = stepOffsetTicks(i, swing);
       events.push({
-        time: ticksToToneTime(offset),
+        time: ticksToToneTime(offset / speed),
         laneId: lane.laneId,
         velocity: step.velocity * sampleVolumeAtTick(clip.volumeKeyframes, offset, clip.volumeCurve),
       });
@@ -68,31 +69,34 @@ export interface MidiNoteEvent {
   velocity: number;
 }
 
-/** Same sharing rationale as buildPatternEvents, for MIDI clips. */
-export function buildMidiEvents(clip: Extract<Clip, { kind: 'midi' }>): MidiNoteEvent[] {
+/** Same sharing rationale as buildPatternEvents, for MIDI clips. `speed` compresses both each note's start offset and its duration (a faster note is also a shorter one), leaving pitch/velocity untouched; velocity is still sampled at the unscaled start tick for the same reason as buildPatternEvents. */
+export function buildMidiEvents(clip: Extract<Clip, { kind: 'midi' }>, speed: number = DEFAULT_SPEED): MidiNoteEvent[] {
   return clip.notes.map((n) => ({
-    time: ticksToToneTime(n.startTicks),
+    time: ticksToToneTime(n.startTicks / speed),
     pitch: n.pitch,
-    durationTicks: n.durationTicks,
+    durationTicks: n.durationTicks / speed,
     velocity: n.velocity * sampleVolumeAtTick(clip.volumeKeyframes, n.startTicks, clip.volumeCurve),
   }));
 }
 
-function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: Map<string, DrumVoice>): Tone.Part {
+// `speed` shrinks the loop period alongside the events (see buildPatternEvents),
+// so a sped-up pattern simply loops more times within the clip's unchanged
+// arrangement footprint (start..start+length stay in real tick space).
+function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: Map<string, DrumVoice>, speed: number): Tone.Part {
   const part = new Tone.Part<PatternStepEvent>((time, ev) => {
     laneVoices.get(ev.laneId)?.trigger(time, ev.velocity);
-  }, buildPatternEvents(clip));
+  }, buildPatternEvents(clip, speed));
   part.loop = true;
-  part.loopEnd = ticksToToneTime(patternLengthTicks(clip.pattern.steps));
+  part.loopEnd = ticksToToneTime(patternLengthTicks(clip.pattern.steps) / speed);
   part.start(ticksToToneTime(clip.startTicks));
   part.stop(ticksToToneTime(clip.startTicks + clip.lengthTicks));
   return part;
 }
 
-function buildMidiPart(clip: Extract<Clip, { kind: 'midi' }>, instrument: SynthInstrument): Tone.Part {
+function buildMidiPart(clip: Extract<Clip, { kind: 'midi' }>, instrument: SynthInstrument, speed: number): Tone.Part {
   const part = new Tone.Part<MidiNoteEvent>((time, ev) => {
     instrument.triggerNote(ev.pitch, ev.durationTicks, time, ev.velocity);
-  }, buildMidiEvents(clip));
+  }, buildMidiEvents(clip, speed));
   part.start(ticksToToneTime(clip.startTicks));
   part.stop(ticksToToneTime(clip.startTicks + clip.lengthTicks));
   return part;
@@ -145,7 +149,7 @@ function buildDrumTrack(
   if (scheduleArrangement) {
     for (const clip of track.clips) {
       if (clip.kind !== 'pattern') continue;
-      parts.push(buildPatternPart(clip, laneVoices));
+      parts.push(buildPatternPart(clip, laneVoices, effectiveSpeed(clip.speed, track.speed)));
     }
   }
 
@@ -206,6 +210,10 @@ function buildAudioTrack(track: Track, trackInput: Tone.Gain, disposables: Dispo
     if (clip.kind !== 'audio' || !hasSampleBuffer(clip.fileRef)) continue;
     const player = new Tone.Player(getSampleBuffer(clip.fileRef)!);
     player.volume.value = clip.gainDb;
+    // Audio has no re-synthesis path, so speed rides playbackRate — content
+    // pitches up with speed (documented tradeoff in ClipBase.speed's comment);
+    // pattern/MIDI above stay pitch-stable because they retime discrete events.
+    player.playbackRate = effectiveSpeed(clip.speed, track.speed);
     const clipGain = new Tone.Gain(1);
     scheduleVolumeAutomation(clipGain.gain, clip.volumeKeyframes, clip.startTicks, clip.lengthTicks, clip.volumeCurve);
     player.connect(clipGain);
@@ -234,7 +242,7 @@ function buildSynthTrack(
   if (scheduleArrangement) {
     for (const clip of track.clips) {
       if (clip.kind !== 'midi') continue;
-      parts.push(buildMidiPart(clip, instrument));
+      parts.push(buildMidiPart(clip, instrument, effectiveSpeed(clip.speed, track.speed)));
     }
   }
 

@@ -5,6 +5,7 @@ import { getTransientState } from '../../state/transient';
 import { audioEngine } from '../../engine/AudioEngine';
 import { sampleVolumeAtTick, sortKeyframes } from '../../engine/automation';
 import { TICKS_PER_BAR, TICKS_PER_BEAT, secondsToTicks } from '../../engine/time';
+import { clampSpeed, DEFAULT_SPEED } from '../../engine/speed';
 import { SNAP_OPTIONS, snapNearest, tickToX, xToTick } from '../pianoroll/geometry';
 import { ARRANGEMENT_TOOLBAR_HEIGHT, TRACK_ROW_HEIGHT as ROW_HEIGHT } from '../trackLayout';
 import { generateId } from '../../utils/id';
@@ -29,6 +30,16 @@ function clipLabel(clip: Clip): string {
   if (clip.kind === 'pattern') return 'Pattern';
   if (clip.kind === 'midi') return 'MIDI';
   return 'Audio';
+}
+
+// How many pixels of Ctrl/Cmd+drag on the resize handle change speed by 1x.
+// Additive-linear (not exponential) so the mapping is predictable both ways;
+// clampSpeed bounds the result to MIN..MAX regardless of drag distance.
+const SPEED_DRAG_PX_PER_UNIT = 120;
+
+/** Trims trailing zeros so 1.5 shows as "1.5×" and 2 as "2×", not "2.00×". */
+function formatSpeed(speed: number): string {
+  return `${Number(speed.toFixed(2))}×`;
 }
 
 const SPLINE_SAMPLE_STEP_PX = 3;
@@ -64,6 +75,7 @@ type Gesture =
       grabOffsetTicks: number;
     }
   | { mode: 'resize'; clipId: string; trackId: string; anchorTicks: number }
+  | { mode: 'speed'; clipId: string; trackId: string; anchorX: number; startSpeed: number }
   | { mode: 'automation'; clipId: string; trackId: string; kfIndex: number };
 
 function Ruler({
@@ -225,9 +237,14 @@ function ClipBlock({
         borderLeft: `2px solid ${track.color}`,
         color: 'var(--color-ink)',
       }}
-      title={`${clipLabel(clip)} clip — drag to move (drop on a same-kind track to retarget), right edge to resize, double-click to add a volume point, right-click for instrument & effects`}
+      title={`${clipLabel(clip)} clip — drag to move (drop on a same-kind track to retarget), right edge to resize (Ctrl/Cmd+drag it to change speed), double-click to add a volume point, right-click for instrument & effects`}
     >
       {clipLabel(clip)}
+      {clip.speed !== undefined && clip.speed !== DEFAULT_SPEED && (
+        <span className="ml-1.5 shrink-0 rounded-sm bg-surface-0/70 px-1 text-[10px] leading-tight text-accent">
+          {formatSpeed(clip.speed)}
+        </span>
+      )}
       {sortedForLine.length > 0 && (
         <svg
           className="pointer-events-none absolute inset-0"
@@ -266,6 +283,7 @@ function ClipBlock({
       <div
         onPointerDown={(e) => onPointerDownResize(e, track, clip)}
         className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize"
+        title="Drag to resize · Ctrl/Cmd+drag to change playback speed"
       />
     </div>
   );
@@ -368,6 +386,20 @@ export function ArrangementView() {
     tracksAreaRef.current!.setPointerCapture(e.pointerId);
     pauseHistory();
     selectAndFocus(track, clip);
+    // Same handle, modifier picks the meaning: plain drag resizes the clip's
+    // arrangement length; Ctrl/Cmd+drag changes its playback-speed multiplier
+    // (see ClipBase.speed) without touching its footprint.
+    if (e.ctrlKey || e.metaKey) {
+      const rect = tracksAreaRef.current!.getBoundingClientRect();
+      gesture.current = {
+        mode: 'speed',
+        clipId: clip.id,
+        trackId: track.id,
+        anchorX: e.clientX - rect.left,
+        startSpeed: clip.speed ?? DEFAULT_SPEED,
+      };
+      return;
+    }
     gesture.current = { mode: 'resize', clipId: clip.id, trackId: track.id, anchorTicks: clip.startTicks };
   };
 
@@ -433,6 +465,12 @@ export function ArrangementView() {
       return;
     }
 
+    if (g.mode === 'speed') {
+      const speed = clampSpeed(g.startSpeed + (x - g.anchorX) / SPEED_DRAG_PX_PER_UNIT);
+      updateClip(g.trackId, g.clipId, { speed });
+      return;
+    }
+
     if (g.mode === 'automation') {
       const track = tracks.find((t) => t.id === g.trackId);
       const clip = track?.clips.find((c) => c.id === g.clipId);
@@ -485,9 +523,9 @@ export function ArrangementView() {
           </select>
         </label>
         <span className="text-ink-faint">
-          Drag a clip to move · right edge to resize · Delete to remove · Ctrl/Cmd+D to duplicate · X to split at
-          playhead · double-click a clip for a volume point, drag a point to adjust, right-click a point to delete ·
-          right-click a clip for instrument &amp; effects
+          Drag a clip to move · right edge to resize (Ctrl/Cmd+drag it for playback speed) · Delete to remove ·
+          Ctrl/Cmd+D to duplicate · X to split at playhead · double-click a clip for a volume point, drag a point to
+          adjust, right-click a point to delete · right-click a clip for instrument &amp; effects
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button

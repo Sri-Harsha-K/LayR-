@@ -3,8 +3,9 @@ import { useProjectStore } from '../../state/projectStore';
 import { useUiStore } from '../../state/uiStore';
 import * as sessionPlayer from '../../engine/sessionPlayer';
 import { useSessionActiveClip } from '../../hooks/useSessionActiveClip';
+import { clampSpeed, DEFAULT_SPEED, MAX_SPEED, MIN_SPEED } from '../../engine/speed';
 import { StartScreen } from '../StartScreen';
-import type { Clip, Track } from '../../state/types';
+import type { Clip, Scene, Track } from '../../state/types';
 
 const CELL_HEIGHT = 56;
 const CELL_WIDTH = 132;
@@ -85,10 +86,12 @@ function TrackColumnHeader({ track }: { track: Track }) {
   );
 }
 
-function SceneRow({ scenes, sceneIndex, tracks }: { scenes: { id: string; name: string }[]; sceneIndex: number; tracks: Track[] }) {
+function SceneRow({ scenes, sceneIndex, tracks }: { scenes: Scene[]; sceneIndex: number; tracks: Track[] }) {
   const scene = scenes[sceneIndex]!;
   const renameScene = useProjectStore((s) => s.renameScene);
   const removeScene = useProjectStore((s) => s.removeScene);
+  const setSceneSpeed = useProjectStore((s) => s.setSceneSpeed);
+  const sceneSpeed = scene.speed ?? DEFAULT_SPEED;
 
   return (
     <div className="flex">
@@ -100,29 +103,45 @@ function SceneRow({ scenes, sceneIndex, tracks }: { scenes: { id: string; name: 
           </div>
         );
       })}
-      <div className="flex shrink-0 items-center gap-1 border-b border-hairline p-1" style={{ width: CELL_WIDTH, height: CELL_HEIGHT }}>
-        <button
-          type="button"
-          onClick={() => void sessionPlayer.launchScene(scene.id)}
-          title="Launch this scene"
-          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-hairline text-[9px] text-ink-faint hover:border-accent hover:text-accent"
-        >
-          ▶
-        </button>
-        <input
-          type="text"
-          value={scene.name}
-          onChange={(e) => renameScene(scene.id, e.target.value)}
-          className="min-w-0 flex-1 truncate bg-transparent text-xs text-ink-dim outline-none focus:text-ink"
-        />
-        <button
-          type="button"
-          onClick={() => removeScene(scene.id)}
-          title="Remove scene"
-          className="h-4 w-4 shrink-0 text-[10px] leading-none text-ink-faint hover:text-record"
-        >
-          ✕
-        </button>
+      <div className="flex shrink-0 flex-col justify-center gap-1 border-b border-hairline p-1" style={{ width: CELL_WIDTH, height: CELL_HEIGHT }}>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void sessionPlayer.launchScene(scene.id)}
+            title="Launch this scene"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-hairline text-[9px] text-ink-faint hover:border-accent hover:text-accent"
+          >
+            ▶
+          </button>
+          <input
+            type="text"
+            value={scene.name}
+            onChange={(e) => renameScene(scene.id, e.target.value)}
+            className="min-w-0 flex-1 truncate bg-transparent text-xs text-ink-dim outline-none focus:text-ink"
+          />
+          <button
+            type="button"
+            onClick={() => removeScene(scene.id)}
+            title="Remove scene"
+            className="h-4 w-4 shrink-0 text-[10px] leading-none text-ink-faint hover:text-record"
+          >
+            ✕
+          </button>
+        </div>
+        {/* Scene speed multiplies onto every clip launched from this row (clip*track*scene) — see engine/sessionPlayer.ts. */}
+        <label className="flex items-center gap-1 pl-5 text-[9px] text-ink-faint" title="Playback speed for clips launched from this scene">
+          <span>Speed</span>
+          <input
+            type="number"
+            min={MIN_SPEED}
+            max={MAX_SPEED}
+            step={0.05}
+            value={sceneSpeed}
+            onChange={(e) => setSceneSpeed(scene.id, clampSpeed(Number(e.target.value)))}
+            className="min-w-0 flex-1 rounded border border-hairline bg-surface-2 px-1 py-0.5 text-[10px] tabular-nums text-ink"
+          />
+          <span>×</span>
+        </label>
       </div>
     </div>
   );

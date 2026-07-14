@@ -3,6 +3,7 @@ import { temporal } from 'zundo';
 import type { TemporalState } from 'zundo';
 import { generateId } from '../utils/id';
 import { DEFAULT_BPM, clampBpm, patternLengthTicks, ticksToSeconds } from '../engine/time';
+import { clampSpeed } from '../engine/speed';
 import { getDefaultPresetForEngine } from '../engine/instruments/synthPresets';
 import { sanitizeProject } from './sanitizeProject';
 import {
@@ -114,10 +115,12 @@ interface ProjectActions {
   setTrackInstrument: (trackId: string, instrument: SynthConfig) => void;
   setTrackDrumKit: (trackId: string, drumKit: DrumLaneConfig[]) => void;
   setTrackArmed: (trackId: string, armed: boolean) => void;
+  setTrackSpeed: (trackId: string, speed: number) => void;
   addScene: (name?: string) => string;
   renameScene: (sceneId: string, name: string) => void;
   removeScene: (sceneId: string) => void;
   reorderScenes: (fromIndex: number, toIndex: number) => void;
+  setSceneSpeed: (sceneId: string, speed: number) => void;
   setClipScene: (trackId: string, clipId: string, sceneId: string | undefined) => void;
 }
 
@@ -437,6 +440,11 @@ export const useProjectStore = create<ProjectStore>()(
           project: withTrack(s.project, trackId, (t) => ({ ...t, armed })),
         })),
 
+      setTrackSpeed: (trackId, speed) =>
+        set((s) => ({
+          project: withTrack(s.project, trackId, (t) => ({ ...t, speed: clampSpeed(speed) })),
+        })),
+
       addScene: (name) => {
         const id = generateId('scene');
         set((s) => {
@@ -478,6 +486,14 @@ export const useProjectStore = create<ProjectStore>()(
           scenes.splice(toIndex, 0, moved);
           return { project: { ...s.project, scenes } };
         }),
+
+      setSceneSpeed: (sceneId, speed) =>
+        set((s) => ({
+          project: {
+            ...s.project,
+            scenes: s.project.scenes.map((sc) => (sc.id === sceneId ? { ...sc, speed: clampSpeed(speed) } : sc)),
+          },
+        })),
 
       setClipScene: (trackId, clipId, sceneId) =>
         set((s) => ({

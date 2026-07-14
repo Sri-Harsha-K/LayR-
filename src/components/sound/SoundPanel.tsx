@@ -3,10 +3,37 @@ import { useUiStore } from '../../state/uiStore';
 import { platform } from '../../platform';
 import { registerSample } from '../../engine/sampleRegistry';
 import { getPresetsForEngine } from '../../engine/instruments/synthPresets';
+import { clampSpeed, DEFAULT_SPEED, MAX_SPEED, MIN_SPEED } from '../../engine/speed';
 import type { SynthConfig } from '../../state/types';
 import { EffectsRack } from '../mixer/EffectsRack';
 import { Knob } from './Knob';
 import { SYNTH_PARAM_FIELDS } from './synthParamFields';
+
+/** Precise speed entry to complement ArrangementView's Ctrl/Cmd+drag gesture — same clampSpeed bounds, keyboard-reachable, with a one-click reset to 1x. */
+function SpeedSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="range"
+        min={MIN_SPEED}
+        max={MAX_SPEED}
+        step={0.05}
+        value={value}
+        onChange={(e) => onChange(clampSpeed(Number(e.target.value)))}
+        className="flex-1 accent-accent"
+      />
+      <span className="w-9 shrink-0 text-right tabular-nums text-ink">{Number(value.toFixed(2))}×</span>
+      <button
+        type="button"
+        onClick={() => onChange(DEFAULT_SPEED)}
+        title="Reset to 1× (normal speed)"
+        className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-ink-faint hover:text-ink"
+      >
+        Reset
+      </button>
+    </div>
+  );
+}
 
 function SynthInstrumentEditor({ trackId, instrument }: { trackId: string; instrument: SynthConfig }) {
   const setTrackInstrument = useProjectStore((s) => s.setTrackInstrument);
@@ -124,6 +151,7 @@ export function SoundPanel() {
   const selection = useUiStore((s) => s.selection);
   const tracks = useProjectStore((s) => s.project.tracks);
   const updateClip = useProjectStore((s) => s.updateClip);
+  const setTrackSpeed = useProjectStore((s) => s.setTrackSpeed);
   const addTrackEffect = useProjectStore((s) => s.addTrackEffect);
   const removeTrackEffect = useProjectStore((s) => s.removeTrackEffect);
   const reorderTrackEffects = useProjectStore((s) => s.reorderTrackEffects);
@@ -178,6 +206,16 @@ export function SoundPanel() {
             </div>
           </div>
         )}
+        {clip && (
+          <label className="flex flex-col gap-1 text-xs text-ink-dim">
+            <span>Clip speed{clip.kind === 'audio' ? ' (pitch shifts)' : ''}</span>
+            <SpeedSlider value={clip.speed ?? DEFAULT_SPEED} onChange={(v) => updateClip(track.id, clip.id, { speed: v })} />
+          </label>
+        )}
+        <label className="flex flex-col gap-1 text-xs text-ink-dim">
+          <span>Track speed</span>
+          <SpeedSlider value={track.speed ?? DEFAULT_SPEED} onChange={(v) => setTrackSpeed(track.id, v)} />
+        </label>
         {track.kind === 'synth' && track.instrument && (
           <SynthInstrumentEditor trackId={track.id} instrument={track.instrument} />
         )}

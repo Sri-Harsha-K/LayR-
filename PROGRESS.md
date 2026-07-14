@@ -1212,3 +1212,70 @@ scoped to mic-only, zero network calls, zero `dangerouslySetInnerHTML`/
   doesn't allow, audio would silently fail only in the packaged app, never
   in dev — worth a manual check against an actual installer build before
   fully trusting this.
+
+## Playback speed (post-Phase 9)
+
+A per-clip/track/scene playback-speed multiplier. Three stacking levels,
+each defaulting to 1.0x (undefined) so existing saved projects need no
+migration and an untouched level is a no-op.
+
+- **`engine/speed.ts`** (unit-tested, no Tone/React — same leaf-utility split
+  as `time.ts`/`automation.ts`): `clampSpeed` (0.25..4, non-finite -> 1.0) and
+  `effectiveSpeed(...levels)`, which clamps each level individually, multiplies
+  them, then clamps the product again — so two maxed levels (4x * 4x) can't
+  drive `Tone.Player.playbackRate` or a loop length to a pathological value.
+  This is the single source of truth for "how do the levels combine," consumed
+  by both schedulers rather than reimplemented in each.
+- **Data model (`state/types.ts`)**: `ClipBase.speed?`, `Track.speed?`,
+  `Scene.speed?`. Timeline playback uses the product clip*track; Session
+  playback uses clip*track*scene (there's no scene context on the Timeline).
+- **`state/sanitizeProject.ts`**: all three fields clamped via `clampSpeed`,
+  but *only when actually present* on the raw object (`typeof === 'number'`),
+  so an absent speed stays `undefined` (= 1.0x) rather than being forced to a
+  literal 1.0 on every load — keeps old files byte-identical through a
+  load/save round-trip and matches how `volumeCurve`/`sceneId` are handled.
+- **Two application strategies, same split as volume automation, for the same
+  reason (synthesized vs. decoded audio):**
+  - **Pattern/MIDI clips retime discrete events** — `buildPatternEvents`/
+    `buildMidiEvents` (already the shared Timeline+Session event source) gained
+    a `speed` param that divides each event's tick offset (and, for MIDI, its
+    duration) by speed before `ticksToToneTime`. Loop periods (`part.loopEnd`)
+    scale the same way. Pitch is unchanged — a faster synth line is just
+    tighter timing. Volume keyframes are still sampled at the *unscaled*
+    clip-logical tick, so the curve maps to the clip's own timeline regardless
+    of speed.
+  - **Audio clips ride `Tone.Player.playbackRate`** (both `graph.ts`'s Timeline
+    player and `sessionPlayer.ts`'s ad-hoc looping player) — there's no
+    re-synthesis path, so pitch necessarily shifts with speed. Documented as
+    the tradeoff in `ClipBase.speed`'s comment; true pitch-preserving
+    time-stretch is noted as future work.
+  - Everything stays in tick-notation (`` `${ticks}i` ``), so speed changes are
+    glitch-free across BPM changes for the same structural reason every other
+    scheduled time in this engine is (see `time.ts`'s header).
+- **Store**: new `setTrackSpeed`/`setSceneSpeed` actions (clamped); clip speed
+  rides the existing `updateClip` `Partial<Clip>` patch, so no new clip action
+  was needed.
+- **UI**:
+  - **Clip speed — Ctrl/Cmd+drag the clip's right-edge resize handle**
+    (`ArrangementView.tsx`): the same handle, modifier picks the meaning
+    (plain = resize length, Ctrl/Cmd = speed), mirroring the Ruler's
+    plain-vs-Shift scrub/loop split. Additive-linear mapping
+    (`SPEED_DRAG_PX_PER_UNIT`), wrapped in the existing
+    `pauseHistory`/`resumeHistory` so the whole drag is one undo step. A small
+    accent-colored `1.5×` badge renders on the clip bar whenever speed != 1.
+  - **Track speed** — a `SpeedSlider` (range + numeric readout + reset-to-1x)
+    in the Sound tab (`SoundPanel.tsx`), where per-track editing already lives;
+    the clip is also given the same slider there for precise/keyboard-reachable
+    entry alongside the drag gesture.
+  - **Scene speed** — a compact numeric input on each Session scene row
+    (`SessionView.tsx`), on a second line under the launch/name/remove row.
+- New `speed.test.ts` covers `clampSpeed` bounds/non-finite and
+  `effectiveSpeed`'s per-level + product clamping and undefined-as-1.0 handling.
+- Not interactively verified — no browser tool connected this session. Verified
+  via clean `typecheck`/`lint`/`test` (84 tests). Actually *hearing* a
+  sped-up drum loop stay pitch-stable while a sped-up audio clip pitches up,
+  and the Ctrl/Cmd+drag feel, have not been checked by a human or visual agent
+  yet — the most important manual pass before calling this done. Also not yet
+  reflected in export/`render.ts` verification (it reuses `buildGraph`, so
+  speed rides along structurally, but a bounced WAV of a sped-up project
+  hasn't been listened to).

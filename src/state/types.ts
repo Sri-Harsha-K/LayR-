@@ -31,6 +31,12 @@ export interface Project {
 export interface Scene {
   id: string;
   name: string;
+  /**
+   * Session-view speed multiplier applied to every clip launched as part of
+   * this scene. Combines with ClipBase.speed and Track.speed by multiplication
+   * (Session playback only — see engine/sessionPlayer.ts). Undefined = 1.0x.
+   */
+  speed?: number;
 }
 
 export type TrackKind = 'drum' | 'synth' | 'audio';
@@ -60,6 +66,12 @@ export interface Track {
   instrument?: SynthConfig; // synth tracks
   drumKit?: DrumLaneConfig[]; // drum tracks
   armed?: boolean; // audio tracks
+  /**
+   * Track-level playback-speed multiplier applied to every clip on this track,
+   * on both Timeline and Session. Combines with ClipBase.speed (and Scene.speed
+   * in Session) by multiplication; undefined = 1.0x. See engine/speed.ts.
+   */
+  speed?: number;
   clips: Clip[];
 }
 
@@ -79,6 +91,16 @@ export interface ClipBase {
   volumeCurve?: 'linear' | 'spline';
   /** Session-view row this clip belongs to. Undefined = Timeline-only, not shown in the Session grid. */
   sceneId?: string;
+  /**
+   * Playback-speed multiplier for this clip ("bar" level) — set by Ctrl/Cmd+
+   * dragging the clip's resize handle. Combines with Track.speed (and
+   * Scene.speed in Session view) by multiplication; undefined = 1.0x. See
+   * engine/speed.ts. Pattern/MIDI clips scale note timing only (no pitch
+   * change, since they're synthesized); audio clips use
+   * Tone.Player.playbackRate, so pitch shifts with speed there (preserving
+   * pitch would need a time-stretch implementation — noted as future work).
+   */
+  speed?: number;
 }
 
 export type Clip = ClipBase &
