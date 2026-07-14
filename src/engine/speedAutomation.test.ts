@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSpeedWarp } from './speedAutomation';
+import { buildSpeedWarp, invertWarp } from './speedAutomation';
 import { MAX_SPEED } from './speed';
 
 const BAR = 3840;
@@ -85,5 +85,34 @@ describe('buildSpeedWarp — speed curve', () => {
     });
     // One extra bar of content at speed 2 adds BAR/2 of output time.
     expect(warp(BAR * 2)).toBeCloseTo(BAR, 2);
+  });
+});
+
+describe('invertWarp — content position from an output tick (playback highlighter)', () => {
+  it('inverts a constant 2x warp: half the output ticks = full content bar', () => {
+    const warp = buildSpeedWarp({ clipScalarSpeed: 2, outerSpeed: 1, domainTicks: BAR });
+    // warp(BAR) = BAR/2, so an output offset of BAR/2 maps back to content BAR.
+    expect(invertWarp(warp, BAR / 2, BAR)).toBeCloseTo(BAR, 0);
+    expect(invertWarp(warp, BAR / 4, BAR)).toBeCloseTo(BAR / 2, 0);
+  });
+
+  it('round-trips warp∘invert to identity for a curved speed', () => {
+    const warp = buildSpeedWarp({
+      speedKeyframes: [
+        { ticks: 0, value: 1 },
+        { ticks: BAR, value: 3 },
+      ],
+      outerSpeed: 1,
+      domainTicks: BAR,
+    });
+    for (const content of [0, 480, 1200, 2400, BAR]) {
+      expect(invertWarp(warp, warp(content), BAR)).toBeCloseTo(content, 0);
+    }
+  });
+
+  it('clamps to the domain edges outside the output range', () => {
+    const warp = buildSpeedWarp({ clipScalarSpeed: 2, outerSpeed: 1, domainTicks: BAR });
+    expect(invertWarp(warp, -100, BAR)).toBe(0);
+    expect(invertWarp(warp, 99999, BAR)).toBe(BAR);
   });
 });

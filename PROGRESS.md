@@ -1320,6 +1320,17 @@ keyframes drive. Volume was already automatable; this adds *speed* automation
   (right-click resets to auto); the editor and the engine sampler call the *same*
   `effectiveHandles` helper, so the drawn curve and the played curve can't drift.
   The editor's drag gesture grew from point-only to `point | in | out`.
+- **Playback highlighters linked to speed (post-follow-up).** The step
+  sequencer's playing-column pulse and the piano-roll playhead computed their
+  position straight from the transport playhead (output ticks), so a sped-up or
+  curve-warped clip's highlight drifted from what you heard. `speedAutomation.ts`
+  gained `invertWarp(forward, outputTick, domain)` (bisection, since the warp is
+  monotonic); both components now rebuild the clip's warp (`clip*track`, once per
+  clip/track-speed change — never per frame) and map the transport's output-tick
+  offset back to a content tick before choosing the lit column / playhead x. At
+  1× it's identity, so unchanged. Session's scene multiplier isn't folded in
+  here (the editors don't know the launched scene) — this matches the Timeline
+  scheduling model the highlighters already assumed.
 - **Data model (`state/types.ts`)**: `ClipBase.speedKeyframes?: VolumeKeyframe[]`
   (same `{ticks, value}` shape; `value` is a speed multiplier, ticks
   clip-relative) + `speedCurve?: 'linear' | 'spline'`. When a pattern/MIDI clip

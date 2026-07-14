@@ -3,6 +3,8 @@ import { useProjectStore } from '../../state/projectStore';
 import { useUiStore } from '../../state/uiStore';
 import { audioEngine } from '../../engine/AudioEngine';
 import { clampSwing, patternLengthTicks, TICKS_PER_SIXTEENTH } from '../../engine/time';
+import { effectiveSpeed } from '../../engine/speed';
+import { buildSpeedWarp, invertWarp } from '../../engine/speedAutomation';
 import { getTransientState } from '../../state/transient';
 import { platform } from '../../platform';
 import { registerSample } from '../../engine/sampleRegistry';
@@ -36,14 +38,26 @@ export function StepSequencer() {
 
   useEffect(() => {
     if (!isPatternClip || !clip) return;
+    // Same warp graph.ts schedules this clip with (clip*track on the Timeline),
+    // rebuilt once per clip change and closed over — so the playing-column
+    // highlight tracks the sped-up / curve-warped audio, not the raw transport.
+    const warp = buildSpeedWarp({
+      speedKeyframes: clip.speedKeyframes,
+      speedCurve: clip.speedCurve,
+      clipScalarSpeed: clip.speed,
+      outerSpeed: effectiveSpeed(track?.speed),
+      domainTicks: patternLenTicks,
+    });
+    const outputLoopLen = warp(patternLenTicks); // one loop's length in output ticks
     let raf: number;
     const loop = () => {
       const t = getTransientState();
       let col = -1;
-      if (t.isPlaying && patternLenTicks > 0) {
-        const local = (((t.playheadTicks - clip.startTicks) % patternLenTicks) + patternLenTicks) % patternLenTicks;
+      if (t.isPlaying && patternLenTicks > 0 && outputLoopLen > 0) {
         if (t.playheadTicks >= clip.startTicks && t.playheadTicks < clip.startTicks + clip.lengthTicks) {
-          col = Math.floor(local / TICKS_PER_SIXTEENTH);
+          const outputLocal = (((t.playheadTicks - clip.startTicks) % outputLoopLen) + outputLoopLen) % outputLoopLen;
+          const contentLocal = invertWarp(warp, outputLocal, patternLenTicks);
+          col = Math.floor(contentLocal / TICKS_PER_SIXTEENTH);
         }
       }
       if (col !== lastPlayingCol.current) {
@@ -63,7 +77,9 @@ export function StepSequencer() {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [isPatternClip, clip, patternLenTicks]);
+    // track?.speed included so a track-speed change rebuilds the warp even when
+    // the clip object ref itself is unchanged.
+  }, [isPatternClip, clip, patternLenTicks, track?.speed]);
 
   if (!track || !clip || !pattern) {
     return (

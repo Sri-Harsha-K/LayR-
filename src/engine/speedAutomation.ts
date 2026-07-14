@@ -71,3 +71,23 @@ export function buildSpeedWarp(opts: SpeedWarpOptions): (contentTick: number) =>
     return cum[i]! + (cum[i + 1]! - cum[i]!) * (pos - i);
   };
 }
+
+// Inverse of a warp over [0, domainTicks]: given an OUTPUT-tick offset, find the
+// content tick that maps to it (the warp is monotonic, so bisection converges).
+// The playback highlighters use this — the transport playhead is in output
+// ticks, but the sequencer's playing column / piano-roll playhead need the
+// content position, so the highlight tracks the sped-up (or curve-warped)
+// audio instead of sweeping at the un-warped rate.
+export function invertWarp(forward: (t: number) => number, outputTick: number, domainTicks: number): number {
+  const domain = Math.max(1, domainTicks);
+  if (outputTick <= 0) return 0;
+  if (outputTick >= forward(domain)) return domain;
+  let lo = 0;
+  let hi = domain;
+  for (let k = 0; k < 24; k++) {
+    const mid = (lo + hi) / 2;
+    if (forward(mid) < outputTick) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}

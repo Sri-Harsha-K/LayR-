@@ -3,6 +3,8 @@ import { pauseHistory, resumeHistory, useProjectStore } from '../../state/projec
 import { useUiStore } from '../../state/uiStore';
 import { audioEngine } from '../../engine/AudioEngine';
 import { TICKS_PER_BAR, TICKS_PER_BEAT } from '../../engine/time';
+import { effectiveSpeed } from '../../engine/speed';
+import { buildSpeedWarp, invertWarp } from '../../engine/speedAutomation';
 import { getTransientState } from '../../state/transient';
 import { getDefaultPresetForEngine, getPresetByName, getPresetsForEngine } from '../../engine/instruments/synthPresets';
 import type { Note, SynthEngine } from '../../state/types';
@@ -57,15 +59,27 @@ export function PianoRoll() {
 
   useEffect(() => {
     if (!isMidiClip || !clip) return;
+    // Same warp graph.ts schedules this clip with (clip*track), rebuilt once per
+    // clip/track-speed change. Notes are drawn at their content ticks, so the
+    // playhead must sit at the CONTENT position — invert the output-tick offset
+    // back through the warp — otherwise it drifts from the sped-up audio.
+    const warp = buildSpeedWarp({
+      speedKeyframes: clip.speedKeyframes,
+      speedCurve: clip.speedCurve,
+      clipScalarSpeed: clip.speed,
+      outerSpeed: effectiveSpeed(track?.speed),
+      domainTicks: clip.lengthTicks,
+    });
     let raf: number;
     const loop = () => {
       const t = getTransientState();
       const el = playheadRef.current;
       if (el) {
-        const local = t.playheadTicks - clip.startTicks;
-        if (t.isPlaying && local >= 0 && local <= clip.lengthTicks) {
+        const outputLocal = t.playheadTicks - clip.startTicks;
+        if (t.isPlaying && outputLocal >= 0 && outputLocal <= clip.lengthTicks) {
+          const contentLocal = invertWarp(warp, outputLocal, clip.lengthTicks);
           el.style.display = 'block';
-          el.style.transform = `translateX(${local * pxPerTick}px)`;
+          el.style.transform = `translateX(${contentLocal * pxPerTick}px)`;
         } else {
           el.style.display = 'none';
         }
@@ -74,7 +88,7 @@ export function PianoRoll() {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [isMidiClip, clip, pxPerTick]);
+  }, [isMidiClip, clip, pxPerTick, track?.speed]);
 
   if (!track || !clip || !isMidiClip) {
     return (
