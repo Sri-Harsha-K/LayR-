@@ -11,7 +11,8 @@ import { buildEffectChain } from './effects';
 import { createDrumVoice, createSampleDrumVoice, type DrumVoice } from './instruments/drumKit';
 import { createSynthInstrument, type SynthInstrument } from './instruments/synthFactory';
 import { getSampleBuffer, hasSampleBuffer } from './sampleRegistry';
-import { DEFAULT_SPEED, effectiveSpeed } from './speed';
+import { effectiveSpeed } from './speed';
+import { buildSpeedWarp } from './speedAutomation';
 import { clampSwing, patternLengthTicks, stepOffsetTicks, ticksToToneTime } from './time';
 
 interface Disposable {
@@ -44,8 +45,11 @@ export interface PatternStepEvent {
   velocity: number;
 }
 
-/** Flattens a pattern clip's "on" steps into swing/volume-adjusted trigger events. Shared by the Timeline's absolute-tick Part (buildPatternPart) and sessionPlayer.ts's ad-hoc looping Part — both need the exact same swing/velocity math, just different start/loop wiring. `speed` compresses each event's tick offset (faster = events closer together); volume is still sampled at the clip-logical, unscaled offset so the curve maps to the clip's own timeline regardless of speed. */
-export function buildPatternEvents(clip: Extract<Clip, { kind: 'pattern' }>, speed: number = DEFAULT_SPEED): PatternStepEvent[] {
+/** Flattens a pattern clip's "on" steps into swing/volume-adjusted trigger events. Shared by the Timeline's absolute-tick Part (buildPatternPart) and sessionPlayer.ts's ad-hoc looping Part — both need the exact same swing/velocity math, just different start/loop wiring. `warp` maps each event's content-tick offset to its output tick (see speedAutomation.ts) — a constant-speed warp just divides; a speed-curve warp bunches events by the local speed. Volume is still sampled at the clip-logical, *unwarped* offset so the volume curve maps to the clip's own timeline regardless of speed. */
+export function buildPatternEvents(
+  clip: Extract<Clip, { kind: 'pattern' }>,
+  warp: (contentTick: number) => number = (t) => t,
+): PatternStepEvent[] {
   const events: PatternStepEvent[] = [];
   const swing = clampSwing(clip.pattern.swing);
   for (const lane of clip.pattern.lanes) {
@@ -53,7 +57,7 @@ export function buildPatternEvents(clip: Extract<Clip, { kind: 'pattern' }>, spe
       if (!step.on) return;
       const offset = stepOffsetTicks(i, swing);
       events.push({
-        time: ticksToToneTime(offset / speed),
+        time: ticksToToneTime(warp(offset)),
         laneId: lane.laneId,
         velocity: step.velocity * sampleVolumeAtTick(clip.volumeKeyframes, offset, clip.volumeCurve),
       });
@@ -69,34 +73,38 @@ export interface MidiNoteEvent {
   velocity: number;
 }
 
-/** Same sharing rationale as buildPatternEvents, for MIDI clips. `speed` compresses both each note's start offset and its duration (a faster note is also a shorter one), leaving pitch/velocity untouched; velocity is still sampled at the unscaled start tick for the same reason as buildPatternEvents. */
-export function buildMidiEvents(clip: Extract<Clip, { kind: 'midi' }>, speed: number = DEFAULT_SPEED): MidiNoteEvent[] {
+/** Same sharing rationale as buildPatternEvents, for MIDI clips. A note's start and its end are each warped, so its on-screen duration is the difference (a faster note is also a shorter one, and under a varying speed curve a note can even stretch/compress mid-bar). Pitch/velocity untouched; velocity sampled at the unwarped start tick for the same reason as buildPatternEvents. */
+export function buildMidiEvents(
+  clip: Extract<Clip, { kind: 'midi' }>,
+  warp: (contentTick: number) => number = (t) => t,
+): MidiNoteEvent[] {
   return clip.notes.map((n) => ({
-    time: ticksToToneTime(n.startTicks / speed),
+    time: ticksToToneTime(warp(n.startTicks)),
     pitch: n.pitch,
-    durationTicks: n.durationTicks / speed,
+    durationTicks: warp(n.startTicks + n.durationTicks) - warp(n.startTicks),
     velocity: n.velocity * sampleVolumeAtTick(clip.volumeKeyframes, n.startTicks, clip.volumeCurve),
   }));
 }
 
-// `speed` shrinks the loop period alongside the events (see buildPatternEvents),
-// so a sped-up pattern simply loops more times within the clip's unchanged
-// arrangement footprint (start..start+length stay in real tick space).
-function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: Map<string, DrumVoice>, speed: number): Tone.Part {
+// The warp shrinks the loop period alongside the events (loopEnd = warped
+// pattern length), so a sped-up pattern simply loops more times within the
+// clip's unchanged arrangement footprint (start..start+length stay in real
+// tick space). The warp's domain is the pattern loop length, matching loopEnd.
+function buildPatternPart(clip: Extract<Clip, { kind: 'pattern' }>, laneVoices: Map<string, DrumVoice>, warp: (t: number) => number): Tone.Part {
   const part = new Tone.Part<PatternStepEvent>((time, ev) => {
     laneVoices.get(ev.laneId)?.trigger(time, ev.velocity);
-  }, buildPatternEvents(clip, speed));
+  }, buildPatternEvents(clip, warp));
   part.loop = true;
-  part.loopEnd = ticksToToneTime(patternLengthTicks(clip.pattern.steps) / speed);
+  part.loopEnd = ticksToToneTime(warp(patternLengthTicks(clip.pattern.steps)));
   part.start(ticksToToneTime(clip.startTicks));
   part.stop(ticksToToneTime(clip.startTicks + clip.lengthTicks));
   return part;
 }
 
-function buildMidiPart(clip: Extract<Clip, { kind: 'midi' }>, instrument: SynthInstrument, speed: number): Tone.Part {
+function buildMidiPart(clip: Extract<Clip, { kind: 'midi' }>, instrument: SynthInstrument, warp: (t: number) => number): Tone.Part {
   const part = new Tone.Part<MidiNoteEvent>((time, ev) => {
     instrument.triggerNote(ev.pitch, ev.durationTicks, time, ev.velocity);
-  }, buildMidiEvents(clip, speed));
+  }, buildMidiEvents(clip, warp));
   part.start(ticksToToneTime(clip.startTicks));
   part.stop(ticksToToneTime(clip.startTicks + clip.lengthTicks));
   return part;
@@ -149,7 +157,14 @@ function buildDrumTrack(
   if (scheduleArrangement) {
     for (const clip of track.clips) {
       if (clip.kind !== 'pattern') continue;
-      parts.push(buildPatternPart(clip, laneVoices, effectiveSpeed(clip.speed, track.speed)));
+      const warp = buildSpeedWarp({
+        speedKeyframes: clip.speedKeyframes,
+        speedCurve: clip.speedCurve,
+        clipScalarSpeed: clip.speed,
+        outerSpeed: effectiveSpeed(track.speed),
+        domainTicks: patternLengthTicks(clip.pattern.steps),
+      });
+      parts.push(buildPatternPart(clip, laneVoices, warp));
     }
   }
 
@@ -242,7 +257,14 @@ function buildSynthTrack(
   if (scheduleArrangement) {
     for (const clip of track.clips) {
       if (clip.kind !== 'midi') continue;
-      parts.push(buildMidiPart(clip, instrument, effectiveSpeed(clip.speed, track.speed)));
+      const warp = buildSpeedWarp({
+        speedKeyframes: clip.speedKeyframes,
+        speedCurve: clip.speedCurve,
+        clipScalarSpeed: clip.speed,
+        outerSpeed: effectiveSpeed(track.speed),
+        domainTicks: clip.lengthTicks,
+      });
+      parts.push(buildMidiPart(clip, instrument, warp));
     }
   }
 

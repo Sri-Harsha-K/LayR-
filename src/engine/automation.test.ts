@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sampleVolumeAtTick, sortKeyframes } from './automation';
+import { effectiveHandles, sampleVolumeAtTick, sortKeyframes } from './automation';
 
 describe('sortKeyframes', () => {
   it('sorts by ticks ascending without mutating the input', () => {
@@ -93,6 +93,39 @@ describe('sampleVolumeAtTick', () => {
       const linearMid = sampleVolumeAtTick(kfs, 240, 'linear');
       const splineMid = sampleVolumeAtTick(kfs, 240, 'spline');
       expect(splineMid).not.toBeCloseTo(linearMid, 1);
+    });
+  });
+
+  describe('spline tangent handles', () => {
+    it('effectiveHandles gives a flat-peak keyframe zero-slope in/out defaults', () => {
+      const sorted = [
+        { ticks: 0, value: 0 },
+        { ticks: 480, value: 1 },
+        { ticks: 960, value: 0 },
+      ];
+      const { inH, outH } = effectiveHandles(sorted, 1);
+      // Neighbors are equal (0 and 0) -> slope 0; length is 1/3 of each segment.
+      expect(outH.dticks).toBeCloseTo(160);
+      expect(outH.dvalue).toBeCloseTo(0);
+      expect(inH.dticks).toBeCloseTo(-160);
+      expect(inH.dvalue).toBeCloseTo(0);
+    });
+
+    it('an explicit out-handle bends the curve away from the default', () => {
+      const base = [
+        { ticks: 0, value: 0 },
+        { ticks: 960, value: 1 },
+      ];
+      const bent = [
+        { ticks: 0, value: 0, hOut: { dticks: 480, dvalue: 1 } }, // steep rise out of the start
+        { ticks: 960, value: 1 },
+      ];
+      const defaultMid = sampleVolumeAtTick(base, 240, 'spline'); // ~0.25 (straight)
+      const bentMid = sampleVolumeAtTick(bent, 240, 'spline');
+      expect(bentMid).toBeGreaterThan(defaultMid + 0.1);
+      // Still passes exactly through the keyframes regardless of handles.
+      expect(sampleVolumeAtTick(bent, 0, 'spline')).toBeCloseTo(0);
+      expect(sampleVolumeAtTick(bent, 960, 'spline')).toBeCloseTo(1);
     });
   });
 });

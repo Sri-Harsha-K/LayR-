@@ -4,6 +4,7 @@ import { PianoRoll } from './pianoroll/PianoRoll';
 import { Mixer } from './mixer/Mixer';
 import { SoundPanel } from './sound/SoundPanel';
 import { LibraryPanel } from './library/LibraryPanel';
+import { KeyframeEditor } from './keyframe/KeyframeEditor';
 
 const TABS: { id: BottomPanelTab; label: string; key: string }[] = [
   { id: 'stepsequencer', label: 'Step Sequencer', key: '1' },
@@ -39,12 +40,26 @@ export function BottomDock() {
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-auto p-3">
-        {activeTab === 'stepsequencer' && <StepSequencer />}
-        {activeTab === 'pianoroll' && <PianoRoll />}
-        {activeTab === 'mixer' && <Mixer />}
-        {activeTab === 'sound' && <SoundPanel />}
-        {activeTab === 'library' && <LibraryPanel />}
+      <div className="flex-1 overflow-hidden p-3">
+        {activeTab === 'stepsequencer' && (
+          <div className="flex h-full gap-3">
+            <div className="min-w-0 flex-1 overflow-auto">
+              <StepSequencer />
+            </div>
+            <KeyframeEditor expectKind="pattern" />
+          </div>
+        )}
+        {activeTab === 'pianoroll' && (
+          <div className="flex h-full gap-3">
+            <div className="min-w-0 flex-1 overflow-auto">
+              <PianoRoll />
+            </div>
+            <KeyframeEditor expectKind="midi" />
+          </div>
+        )}
+        {activeTab === 'mixer' && <div className="h-full overflow-auto"><Mixer /></div>}
+        {activeTab === 'sound' && <div className="h-full overflow-auto"><SoundPanel /></div>}
+        {activeTab === 'library' && <div className="h-full overflow-auto"><LibraryPanel /></div>}
       </div>
     </section>
   );

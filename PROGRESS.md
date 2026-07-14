@@ -1279,3 +1279,95 @@ migration and an untouched level is a no-op.
   reflected in export/`render.ts` verification (it reuses `buildGraph`, so
   speed rides along structurally, but a bounced WAV of a sped-up project
   hasn't been listened to).
+
+## Keyframe editor panel + speed automation (post-Phase 9)
+
+A dedicated curve editor docked to the right of the Step Sequencer and Piano
+Roll, with a **Volume / Speed** dropdown that picks which clip parameter its
+keyframes drive. Volume was already automatable; this adds *speed* automation
+(speed that varies across the bar) as a peer channel.
+
+- **`components/keyframe/KeyframeEditor.tsx`** (new): a fixed-size plot whose
+  horizontal span IS the selected bar — x=0 maps to the clip's start (tick 0),
+  x=full to its end (`clip.lengthTicks`). Keyframe `ticks` are stored
+  clip-relative already, so the mapping is a plain ratio with no offset. Same
+  pointer model as the ArrangementView overlay (double-click adds a point, drag
+  moves it in time+value, right-click deletes, one-undo-step via
+  `pauseHistory`/`resumeHistory`), plus the linear/spline toggle and a Clear.
+  The dropdown switches the whole editor between two per-channel configs
+  (fields read/written, value-axis bounds, readout format, reference
+  gridlines): **Volume** edits `volumeKeyframes`/`volumeCurve` on a 0..1 axis;
+  **Speed** edits new `speedKeyframes`/`speedCurve` on a MIN_SPEED..MAX_SPEED
+  axis with 1× as the reference line. Mounted via `BottomDock.tsx`, which now
+  splits the stepsequencer/pianoroll tabs into `[builder | editor]` (the
+  builder pane scrolls, the editor rail is fixed-width). The editor only ever
+  shows for pattern/MIDI clips — which is exactly where a speed *curve* is
+  well-defined. **When a clip has no keyframes in the active channel, two
+  draggable handles are shown at the bar's start and end** (at the channel
+  default) so there's always something to grab — they're display-only
+  (rendered from a computed default, faintly styled) until the first
+  drag/double-click, which commits them as real keyframes; merely opening the
+  panel never dirties the project.
+- **Spline tangent handles (post-follow-up).** The `'spline'` curve was upgraded
+  from an auto-tangent Catmull-Rom (no user control) to a **user-editable cubic
+  bezier**: in Spline mode each keyframe sprouts draggable tangent "handle bars"
+  (small squares on a line out of the point) that bend the curve into/out of
+  that point, the way an After Effects / automation graph editor works. Handles
+  are stored as offsets on the keyframe (`hIn`/`hOut`, see below); absent = an
+  auto default derived from the neighbor slope (1/3-segment length), so an
+  untouched spline still looks Catmull-Rom-like and old projects need no
+  migration. Dragging a handle end materializes the explicit tangent
+  (right-click resets to auto); the editor and the engine sampler call the *same*
+  `effectiveHandles` helper, so the drawn curve and the played curve can't drift.
+  The editor's drag gesture grew from point-only to `point | in | out`.
+- **Data model (`state/types.ts`)**: `ClipBase.speedKeyframes?: VolumeKeyframe[]`
+  (same `{ticks, value}` shape; `value` is a speed multiplier, ticks
+  clip-relative) + `speedCurve?: 'linear' | 'spline'`. When a pattern/MIDI clip
+  has speed keyframes, the curve defines that clip's speed across the bar and
+  the single `clip.speed` scalar is ignored for it (track/scene scalars still
+  multiply on top).
+- **`state/sanitizeProject.ts`**: `sanitizeSpeedKeyframes` mirrors the volume
+  one but clamps each `value` via `clampSpeed` (MIN..MAX) instead of 0..1;
+  `speedCurve` validated as the same enum. Absent fields stay undefined, so old
+  projects are untouched.
+- **`engine/automation.ts`**: generalized the curve sampler into
+  `sampleCurveAtTick(keyframes, ticks, curve, clampMin, clampMax)` so the same
+  linear/bezier math serves both channels — only the clamp bounds differ
+  (spline previously hard-clamped to 0..1, which would have capped speed at 1×).
+  `sampleVolumeAtTick` is now a thin wrapper (`…, 0, 1`), behavior identical.
+- **`engine/speedAutomation.ts`** (new, unit-tested, pure): `buildSpeedWarp`
+  turns a clip's speed (scalar OR curve) into a **time-warp** — `warp(t)` is the
+  cumulative integral of `1/speed` over the bar, i.e. the output tick at which a
+  content-tick-`t` event should fire. Faster speed accrues less output time, so
+  events bunch and the loop period shrinks. **The constant case is exact:** with
+  no keyframes, `warp(t) = t / s` — byte-for-byte the old `offset / speed`
+  divide, so clips without a curve behave identically (this is the property the
+  tests pin). Curves are integrated numerically (midpoint rule, ~64 samples per
+  bar) with per-sample clamping to the engine bounds; past the domain it
+  extrapolates at the boundary rate (for MIDI note tails).
+- **`engine/graph.ts` / `engine/sessionPlayer.ts`**: the shared
+  `buildPatternEvents`/`buildMidiEvents` now take a `warp` function instead of a
+  `speed` number — pattern events map `warp(offset)`, MIDI notes map
+  `warp(start)` with duration `warp(start+dur) - warp(start)` (so a note can
+  stretch/compress within the bar under a varying curve), and loop ends become
+  `warp(patternLength)` / `warp(lengthTicks)`. Each call site builds the warp
+  per clip (`outerSpeed` = `effectiveSpeed(track.speed)` on the Timeline,
+  `effectiveSpeed(track.speed, scene.speed)` in Session). **Audio clips are
+  unchanged** — they keep the single `playbackRate` scalar
+  (`effectiveSpeed(clip.speed, track.speed[, scene.speed])`), since there's no
+  per-event retiming for decoded audio and the editor never edits audio anyway.
+- New `speedAutomation.test.ts` (7 cases) pins the constant-reproduces-divide
+  property, the outer-multiplier clamp, monotonicity + the analytic integral for
+  a 1×→2× ramp (`BAR·ln2`), out-of-range clamping, and past-domain
+  extrapolation. Extended nothing in `automation.test.ts` (sampleVolumeAtTick
+  behavior is unchanged and its wrapper is covered by the existing cases).
+- Not interactively verified — no browser tool connected this session.
+  Verified via clean `typecheck`/`lint`/`test` (91 tests). Actually *hearing* a
+  speed curve warp a drum loop's groove (accelerando/ritardando within one bar)
+  and seeing the drawn curve match, plus the Volume/Speed dropdown flow, have
+  not been checked by a human or visual agent yet — the most important manual
+  pass before calling this done. Known scope notes: for a pattern clip whose
+  `lengthTicks` exceeds one pattern loop, the speed curve is defined/integrated
+  over the loop length (what actually repeats), while the editor plots over the
+  full clip length — equal for the common 1-bar clip; a mismatch only for
+  multi-loop-length pattern clips.

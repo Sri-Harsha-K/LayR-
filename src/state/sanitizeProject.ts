@@ -24,6 +24,7 @@ import {
   type DrumStep,
   type EffectInstance,
   type EffectType,
+  type KeyframeHandle,
   type Note,
   type Project,
   type Scene,
@@ -200,11 +201,40 @@ function sanitizeNote(v: unknown): Note | null {
   };
 }
 
+// A bezier tangent handle (spline only): dropped entirely unless both offsets
+// are finite numbers; magnitudes bounded so a hostile file can't hand the
+// curve solver a wild control point.
+function sanitizeHandle(v: unknown): KeyframeHandle | undefined {
+  if (!isObject(v)) return undefined;
+  if (typeof v['dticks'] !== 'number' || !Number.isFinite(v['dticks'])) return undefined;
+  if (typeof v['dvalue'] !== 'number' || !Number.isFinite(v['dvalue'])) return undefined;
+  return {
+    dticks: clampedNumber(v['dticks'], -MAX_TICKS, MAX_TICKS, 0),
+    dvalue: clampedNumber(v['dvalue'], -1000, 1000, 0),
+  };
+}
+
+function withHandles(base: VolumeKeyframe, raw: Record<string, unknown>): VolumeKeyframe {
+  const hIn = sanitizeHandle(raw['hIn']);
+  const hOut = sanitizeHandle(raw['hOut']);
+  return { ...base, ...(hIn ? { hIn } : {}), ...(hOut ? { hOut } : {}) };
+}
+
 function sanitizeVolumeKeyframes(v: unknown): VolumeKeyframe[] | undefined {
   if (!Array.isArray(v) || v.length === 0) return undefined;
   const kfs = boundedArray(v, MAX_EVENTS_PER_CLIP)
     .filter(isObject)
-    .map((kf) => ({ ticks: ticks(kf['ticks']), value: clampedNumber(kf['value'], 0, 1, 1) }));
+    .map((kf) => withHandles({ ticks: ticks(kf['ticks']), value: clampedNumber(kf['value'], 0, 1, 1) }, kf));
+  return kfs.length > 0 ? kfs : undefined;
+}
+
+// Same shape as volume keyframes, but `value` is a speed multiplier clamped to
+// the engine's MIN..MAX (via clampSpeed) rather than a 0..1 gain.
+function sanitizeSpeedKeyframes(v: unknown): VolumeKeyframe[] | undefined {
+  if (!Array.isArray(v) || v.length === 0) return undefined;
+  const kfs = boundedArray(v, MAX_EVENTS_PER_CLIP)
+    .filter(isObject)
+    .map((kf) => withHandles({ ticks: ticks(kf['ticks']), value: clampSpeed(finiteNumber(kf['value'], 1)) }, kf));
   return kfs.length > 0 ? kfs : undefined;
 }
 
@@ -222,6 +252,9 @@ function sanitizeClipBase(v: Record<string, unknown>): ClipBase {
   // Only set when actually present — an absent speed stays undefined (= 1.0x),
   // so projects saved before the speed feature need no migration.
   if (typeof v['speed'] === 'number') base.speed = clampSpeed(v['speed']);
+  const speedKeyframes = sanitizeSpeedKeyframes(v['speedKeyframes']);
+  if (speedKeyframes) base.speedKeyframes = speedKeyframes;
+  if (v['speedCurve'] === 'spline' || v['speedCurve'] === 'linear') base.speedCurve = v['speedCurve'];
   return base;
 }
 

@@ -75,9 +75,21 @@ export interface Track {
   clips: Clip[];
 }
 
+/** A bezier tangent handle, stored as an offset from its keyframe. `dticks` is
+ *  negative for an "in" handle (points back toward the previous keyframe) and
+ *  positive for an "out" handle. Absent = auto (a Catmull-Rom-like default the
+ *  engine derives from the neighbors), so old projects and freshly-added points
+ *  are smooth until the user drags a handle. Only consulted for `'spline'`. */
+export interface KeyframeHandle {
+  dticks: number;
+  dvalue: number;
+}
+
 export interface VolumeKeyframe {
   ticks: number; // clip-relative, 0..lengthTicks
   value: number; // 0..1 linear gain multiplier
+  hIn?: KeyframeHandle; // incoming tangent handle (spline only)
+  hOut?: KeyframeHandle; // outgoing tangent handle (spline only)
 }
 
 export interface ClipBase {
@@ -99,8 +111,23 @@ export interface ClipBase {
    * change, since they're synthesized); audio clips use
    * Tone.Player.playbackRate, so pitch shifts with speed there (preserving
    * pitch would need a time-stretch implementation — noted as future work).
+   * Ignored for a pattern/MIDI clip that has `speedKeyframes` — the curve
+   * defines that clip's speed across the bar instead of this single scalar.
    */
   speed?: number;
+  /**
+   * Optional speed *automation* across the bar for pattern/MIDI clips
+   * (editable in the KeyframeEditor's "Speed" mode). Same `{ticks, value}`
+   * shape as volumeKeyframes but `value` is a speed multiplier in
+   * MIN_SPEED..MAX_SPEED, and ticks are clip-relative. When present, the
+   * engine retimes events by the cumulative integral of 1/speed over the bar
+   * (see engine/speedAutomation.ts) instead of a constant divide. Not applied
+   * to audio clips (playbackRate is a scalar, and the editor only edits
+   * pattern/MIDI anyway).
+   */
+  speedKeyframes?: VolumeKeyframe[];
+  /** How speedKeyframes interpolate. Undefined = 'linear'. Mirrors volumeCurve. */
+  speedCurve?: 'linear' | 'spline';
 }
 
 export type Clip = ClipBase &

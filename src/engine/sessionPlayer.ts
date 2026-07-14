@@ -16,6 +16,7 @@ import { audioEngine } from './AudioEngine';
 import { buildMidiEvents, buildPatternEvents, type MidiNoteEvent, type PatternStepEvent } from './graph';
 import { getSampleBuffer } from './sampleRegistry';
 import { effectiveSpeed } from './speed';
+import { buildSpeedWarp } from './speedAutomation';
 import * as transport from './transport';
 import { patternLengthTicks, ticksToToneTime, TICKS_PER_BAR } from './time';
 import { useProjectStore } from '../state/projectStore';
@@ -37,14 +38,14 @@ function nextBarTick(): number {
   return Math.ceil(current / TICKS_PER_BAR) * TICKS_PER_BAR;
 }
 
-function launchPattern(trackId: string, clip: Extract<Clip, { kind: 'pattern' }>, atTick: number, speed: number): ActiveLaunch | null {
+function launchPattern(trackId: string, clip: Extract<Clip, { kind: 'pattern' }>, atTick: number, warp: (t: number) => number): ActiveLaunch | null {
   const laneVoices = audioEngine.getDrumVoices(trackId);
   if (!laneVoices) return null;
   const part = new Tone.Part<PatternStepEvent>((time, ev) => {
     laneVoices.get(ev.laneId)?.trigger(time, ev.velocity);
-  }, buildPatternEvents(clip, speed));
+  }, buildPatternEvents(clip, warp));
   part.loop = true;
-  part.loopEnd = ticksToToneTime(patternLengthTicks(clip.pattern.steps) / speed);
+  part.loopEnd = ticksToToneTime(warp(patternLengthTicks(clip.pattern.steps)));
   part.start(ticksToToneTime(atTick));
   return {
     clipId: clip.id,
@@ -59,14 +60,14 @@ function launchPattern(trackId: string, clip: Extract<Clip, { kind: 'pattern' }>
   };
 }
 
-function launchMidi(trackId: string, clip: Extract<Clip, { kind: 'midi' }>, atTick: number, speed: number): ActiveLaunch | null {
+function launchMidi(trackId: string, clip: Extract<Clip, { kind: 'midi' }>, atTick: number, warp: (t: number) => number): ActiveLaunch | null {
   const instrument = audioEngine.getSynthInstrument(trackId);
   if (!instrument) return null;
   const part = new Tone.Part<MidiNoteEvent>((time, ev) => {
     instrument.triggerNote(ev.pitch, ev.durationTicks, time, ev.velocity);
-  }, buildMidiEvents(clip, speed));
+  }, buildMidiEvents(clip, warp));
   part.loop = true;
-  part.loopEnd = ticksToToneTime(clip.lengthTicks / speed);
+  part.loopEnd = ticksToToneTime(warp(clip.lengthTicks));
   part.start(ticksToToneTime(atTick));
   return {
     clipId: clip.id,
@@ -114,20 +115,29 @@ function launchAudio(trackId: string, clip: Extract<Clip, { kind: 'audio' }>, at
   };
 }
 
-function buildLaunch(trackId: string, clip: Clip, atTick: number, speed: number): ActiveLaunch | null {
-  if (clip.kind === 'pattern') return launchPattern(trackId, clip, atTick, speed);
-  if (clip.kind === 'midi') return launchMidi(trackId, clip, atTick, speed);
-  return launchAudio(trackId, clip, atTick, speed);
-}
-
 // Session playback stacks all three levels: clip * track * scene (the scene a
 // clip is launched from). Timeline playback (graph.ts) uses only clip * track,
-// since there's no scene context there.
-function speedFor(trackId: string, clip: Clip): number {
+// since there's no scene context there. Pattern/MIDI get a full time-warp (so
+// a per-clip speed *curve* works exactly as it does on the Timeline); audio
+// stays on a single playbackRate scalar (no continuous rate automation).
+function buildLaunch(trackId: string, clip: Clip, atTick: number): ActiveLaunch | null {
   const project = useProjectStore.getState().project;
   const track = project.tracks.find((t) => t.id === trackId);
   const scene = clip.sceneId ? project.scenes.find((s) => s.id === clip.sceneId) : undefined;
-  return effectiveSpeed(clip.speed, track?.speed, scene?.speed);
+  const outerSpeed = effectiveSpeed(track?.speed, scene?.speed);
+
+  if (clip.kind === 'audio') {
+    return launchAudio(trackId, clip, atTick, effectiveSpeed(clip.speed, track?.speed, scene?.speed));
+  }
+  const warp = buildSpeedWarp({
+    speedKeyframes: clip.speedKeyframes,
+    speedCurve: clip.speedCurve,
+    clipScalarSpeed: clip.speed,
+    outerSpeed,
+    domainTicks: clip.kind === 'pattern' ? patternLengthTicks(clip.pattern.steps) : clip.lengthTicks,
+  });
+  if (clip.kind === 'pattern') return launchPattern(trackId, clip, atTick, warp);
+  return launchMidi(trackId, clip, atTick, warp);
 }
 
 function stopTrackAt(trackId: string, atTick: number): void {
@@ -145,7 +155,7 @@ export async function launchClip(trackId: string, clip: Clip): Promise<void> {
   if (!transport.isPlaying()) transport.play();
   const atTick = nextBarTick();
   stopTrackAt(trackId, atTick);
-  const launch = buildLaunch(trackId, clip, atTick, speedFor(trackId, clip));
+  const launch = buildLaunch(trackId, clip, atTick);
   if (launch) {
     activeByTrack.set(trackId, launch);
     Tone.getTransport().scheduleOnce(() => setSessionActiveClip(trackId, clip.id), ticksToToneTime(atTick));
@@ -167,7 +177,7 @@ export async function launchScene(sceneId: string): Promise<void> {
     const clip = track.clips.find((c) => c.sceneId === sceneId);
     if (!clip) continue;
     stopTrackAt(track.id, atTick);
-    const launch = buildLaunch(track.id, clip, atTick, speedFor(track.id, clip));
+    const launch = buildLaunch(track.id, clip, atTick);
     if (launch) {
       activeByTrack.set(track.id, launch);
       Tone.getTransport().scheduleOnce(() => setSessionActiveClip(track.id, clip.id), ticksToToneTime(atTick));
